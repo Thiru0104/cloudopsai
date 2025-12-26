@@ -9,8 +9,16 @@ from azure.mgmt.network import NetworkManagementClient
 from azure.mgmt.resource import ResourceManagementClient
 from azure.mgmt.subscription import SubscriptionClient
 from azure.mgmt.storage import StorageManagementClient
+from azure.mgmt.compute import ComputeManagementClient
+from azure.mgmt.web import WebSiteManagementClient
+from azure.mgmt.keyvault import KeyVaultManagementClient
 from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
+from azure.storage.fileshare import ShareServiceClient
+from azure.storage.queue import QueueServiceClient
+from azure.data.tables import TableServiceClient
+from azure.monitor.query import LogsQueryClient, LogsQueryStatus
 from azure.core.exceptions import AzureError
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from ..core.config import settings
 
@@ -28,18 +36,31 @@ class AzureService:
         
         # Initialize subscription client (doesn't need subscription_id)
         self.subscription_client = SubscriptionClient(self.credential)
+
+        # Initialize Logs Query Client
+        try:
+            self.logs_query_client = LogsQueryClient(self.credential)
+        except Exception as e:
+            logger.error(f"Failed to initialize LogsQueryClient: {e}")
+            self.logs_query_client = None
         
         # Initialize clients only if subscription_id is available
         if self.subscription_id:
             self.network_client = NetworkManagementClient(self.credential, self.subscription_id)
             self.resource_client = ResourceManagementClient(self.credential, self.subscription_id)
             self.storage_client = StorageManagementClient(self.credential, self.subscription_id)
+            self.compute_client = ComputeManagementClient(self.credential, self.subscription_id)
+            self.web_client = WebSiteManagementClient(self.credential, self.subscription_id)
+            self.keyvault_client = KeyVaultManagementClient(self.credential, self.subscription_id)
             self.blob_service_client = self._get_blob_service_client()
         else:
             logger.warning("Azure subscription ID not found. Some Azure services will not be available.")
             self.network_client = None
             self.resource_client = None
             self.storage_client = None
+            self.compute_client = None
+            self.web_client = None
+            self.keyvault_client = None
             self.blob_service_client = None
     
     def _get_credential(self):
@@ -92,6 +113,168 @@ class AzureService:
         except Exception as e:
             logger.error(f"Failed to get blob service client for {storage_account_name}: {e}")
             return None
+
+    async def get_recent_incidents(self, subscription_id: str, time_range: str = "24h") -> List[Dict]:
+        """
+        Get recent incidents from Azure Activity Log using KQL.
+        """
+        if not self.logs_query_client:
+            logger.warning("LogsQueryClient is not initialized")
+            return []
+            
+        try:
+            # Map time range to KQL timespan
+            timespan_map = {
+                "24h": "24h",
+                "7d": "7d",
+                "30d": "30d"
+            }
+            timespan_str = timespan_map.get(time_range, "24h")
+            timespan_delta = timedelta(hours=24)
+            if time_range == "7d":
+                timespan_delta = timedelta(days=7)
+            elif time_range == "30d":
+                timespan_delta = timedelta(days=30)
+            
+            query = f"""
+            AzureActivity
+            | where TimeGenerated > ago({timespan_str})
+            | where Level == 'Error' or Level == 'Warning' or Level == 'Critical'
+            | project TimeGenerated, ResourceId, Level, OperationName, Caller, ResourceGroup, ResourceProvider
+            | order by TimeGenerated desc
+            | take 50
+            """
+            
+            logger.info(f"Querying Activity Logs for subscription {subscription_id} with range {time_range}")
+            
+            # Query the subscription resource directly for Activity Logs
+            # Note: query_resource takes resource_id. For Activity Log, we target the subscription ID.
+            response = await asyncio.to_thread(
+                self.logs_query_client.query_resource,
+                resource_id=f"/subscriptions/{subscription_id}",
+                query=query,
+                timespan=timespan_delta
+            )
+            
+            if response.status == LogsQueryStatus.PARTIAL:
+                error = response.partial_error
+                data = response.tables
+                logger.warning(f"Partial success for KQL query: {error}")
+            elif response.status == LogsQueryStatus.FAILURE:
+                logger.error(f"KQL query failed: {response}")
+                return []
+            else:
+                data = response.tables
+
+            incidents = []
+            if data:
+                for table in data:
+                    # Get column indices
+                    col_map = {}
+                    for idx, col in enumerate(table.columns):
+                        if hasattr(col, 'name'):
+                            col_map[col.name] = idx
+                        else:
+                            col_map[str(col)] = idx
+                    
+                    for row in table.rows:
+                        incidents.append({
+                            "timestamp": row[col_map["TimeGenerated"]].isoformat() if row[col_map["TimeGenerated"]] else None,
+                            "resource_id": row[col_map["ResourceId"]],
+                            "level": row[col_map["Level"]],
+                            "operation": row[col_map["OperationName"]],
+                            "caller": row[col_map["Caller"]],
+                            "resource_group": row[col_map["ResourceGroup"]],
+                            "resource_provider": row[col_map["ResourceProvider"]]
+                        })
+            
+            logger.info(f"Found {len(incidents)} incidents")
+            return incidents
+
+        except Exception as e:
+            logger.error(f"Failed to query Azure Activity Logs: {e}")
+            return []
+
+    async def get_incidents_timeline(self, subscription_id: str, time_range: str = "24h") -> List[Dict]:
+        """
+        Get incident timeline data for chart.
+        """
+        if not self.logs_query_client:
+            return []
+            
+        try:
+            timespan_map = {
+                "24h": "24h",
+                "7d": "7d",
+                "30d": "30d"
+            }
+            timespan_str = timespan_map.get(time_range, "24h")
+            timespan_delta = timedelta(hours=24)
+            if time_range == "7d":
+                timespan_delta = timedelta(days=7)
+            elif time_range == "30d":
+                timespan_delta = timedelta(days=30)
+                
+            # Determine bin size based on range
+            bin_size = "1h"
+            if time_range == "7d":
+                bin_size = "6h"
+            elif time_range == "30d":
+                bin_size = "1d"
+            
+            query = f"""
+            AzureActivity
+            | where TimeGenerated > ago({timespan_str})
+            | where Level == 'Error' or Level == 'Warning' or Level == 'Critical'
+            | summarize Count=count() by bin(TimeGenerated, {bin_size}), Level
+            | order by TimeGenerated asc
+            """
+            
+            response = await asyncio.to_thread(
+                self.logs_query_client.query_resource,
+                resource_id=f"/subscriptions/{subscription_id}",
+                query=query,
+                timespan=timespan_delta
+            )
+            
+            if response.status == LogsQueryStatus.FAILURE:
+                return []
+                
+            data = response.tables
+            timeline = []
+            
+            if data:
+                for table in data:
+                    col_map = {}
+                    for idx, col in enumerate(table.columns):
+                        if hasattr(col, 'name'):
+                            col_map[col.name] = idx
+                        else:
+                            col_map[str(col)] = idx
+                            
+                    for row in table.rows:
+                        # Find existing bucket or create new
+                        timestamp = row[col_map["TimeGenerated"]].isoformat() if row[col_map["TimeGenerated"]] else None
+                        level = row[col_map["Level"]]
+                        count = row[col_map["Count"]]
+                        
+                        # We want a format like {timestamp: '...', error: 5, warning: 2}
+                        found = False
+                        for item in timeline:
+                            if item["timestamp"] == timestamp:
+                                item[level.lower()] = count
+                                found = True
+                                break
+                        
+                        if not found:
+                            entry = {"timestamp": timestamp}
+                            entry[level.lower()] = count
+                            timeline.append(entry)
+            
+            return timeline
+        except Exception as e:
+            logger.error(f"Failed to get incidents timeline: {e}")
+            return []
 
     # Subscription Management Methods
     async def list_subscriptions(self) -> List[Dict]:
@@ -1248,7 +1431,7 @@ class AzureService:
                     "resource_group": account.id.split('/')[4],
                     "location": account.location,
                     "sku": account.sku.name if account.sku else "Unknown",
-                    "kind": account.kind.value if account.kind else "Unknown",
+                    "kind": account.kind.value if hasattr(account.kind, 'value') else str(account.kind) if account.kind else "Unknown",
                     "subscription_id": target_subscription_id,
                     "provisioning_state": getattr(account_details, 'provisioning_state', 'Unknown'),
                     "creation_time": getattr(account_details, 'creation_time', None).isoformat() if getattr(account_details, 'creation_time', None) else None,
@@ -1265,10 +1448,231 @@ class AzureService:
             logger.error(f"Failed to list storage accounts: {e}")
             return []
 
+    async def list_vms(self, subscription_id: Optional[str] = None) -> List[Dict]:
+        """List all Virtual Machines in the subscription"""
+        try:
+            target_subscription_id = subscription_id or self.subscription_id
+            if not target_subscription_id:
+                raise ValueError("No subscription ID provided and no default subscription configured")
+            
+            compute_client = self.compute_client
+            if subscription_id and subscription_id != self.subscription_id:
+                compute_client = ComputeManagementClient(self.credential, target_subscription_id)
+            elif not compute_client:
+                 compute_client = ComputeManagementClient(self.credential, target_subscription_id)
 
+            vms = []
+            for vm in compute_client.virtual_machines.list_all():
+                vms.append({
+                    "id": vm.id,
+                    "name": vm.name,
+                    "resource_group": vm.id.split('/')[4],
+                    "location": vm.location,
+                    "subscription_id": target_subscription_id,
+                    "provisioning_state": vm.provisioning_state,
+                    "vm_size": vm.hardware_profile.vm_size if vm.hardware_profile else "Unknown",
+                    "os_type": vm.storage_profile.os_disk.os_type.value if vm.storage_profile and vm.storage_profile.os_disk else "Unknown"
+                })
+            return vms
+        except Exception as e:
+            logger.error(f"Failed to list VMs: {e}")
+            return []
 
+    async def list_web_apps(self, subscription_id: Optional[str] = None) -> List[Dict]:
+        """List all Web Apps in the subscription"""
+        try:
+            target_subscription_id = subscription_id or self.subscription_id
+            if not target_subscription_id:
+                raise ValueError("No subscription ID provided and no default subscription configured")
+            
+            web_client = self.web_client
+            if subscription_id and subscription_id != self.subscription_id:
+                web_client = WebSiteManagementClient(self.credential, target_subscription_id)
+            elif not web_client:
+                 web_client = WebSiteManagementClient(self.credential, target_subscription_id)
 
+            web_apps = []
+            for app in web_client.web_apps.list():
+                web_apps.append({
+                    "id": app.id,
+                    "name": app.name,
+                    "resource_group": app.resource_group,
+                    "location": app.location,
+                    "subscription_id": target_subscription_id,
+                    "state": app.state,
+                    "default_host_name": app.default_host_name,
+                    "https_only": app.https_only
+                })
+            return web_apps
+        except Exception as e:
+            logger.error(f"Failed to list Web Apps: {e}")
+            return []
 
+    async def list_key_vaults(self, subscription_id: Optional[str] = None) -> List[Dict]:
+        """List all Key Vaults in the subscription"""
+        try:
+            target_subscription_id = subscription_id or self.subscription_id
+            if not target_subscription_id:
+                raise ValueError("No subscription ID provided and no default subscription configured")
+            
+            keyvault_client = self.keyvault_client
+            if subscription_id and subscription_id != self.subscription_id:
+                keyvault_client = KeyVaultManagementClient(self.credential, target_subscription_id)
+            elif not keyvault_client:
+                 keyvault_client = KeyVaultManagementClient(self.credential, target_subscription_id)
 
+            vaults = []
+            for vault in keyvault_client.vaults.list():
+                vaults.append({
+                    "id": vault.id,
+                    "name": vault.name,
+                    "resource_group": vault.id.split('/')[4],
+                    "location": vault.location,
+                    "subscription_id": target_subscription_id,
+                    "sku": vault.properties.sku.name.value if vault.properties and vault.properties.sku else "Unknown",
+                    "provisioning_state": vault.properties.provisioning_state if vault.properties else "Unknown"
+                })
+            return vaults
+        except Exception as e:
+            logger.error(f"Failed to list Key Vaults: {e}")
+            return []
+
+    async def list_wafs(self, subscription_id: Optional[str] = None) -> List[Dict]:
+        """List all WAF Policies in the subscription"""
+        try:
+            target_subscription_id = subscription_id or self.subscription_id
+            if not target_subscription_id:
+                raise ValueError("No subscription ID provided and no default subscription configured")
+            
+            network_client = self.network_client
+            if subscription_id and subscription_id != self.subscription_id:
+                network_client = NetworkManagementClient(self.credential, target_subscription_id)
+            elif not network_client:
+                 network_client = NetworkManagementClient(self.credential, target_subscription_id)
+
+            wafs = []
+            for waf in network_client.web_application_firewall_policies.list_all():
+                 wafs.append({
+                    "id": waf.id,
+                    "name": waf.name,
+                    "resource_group": waf.id.split('/')[4],
+                    "location": waf.location,
+                    "subscription_id": target_subscription_id,
+                    "provisioning_state": waf.provisioning_state,
+                    "policy_settings": {
+                        "state": waf.policy_settings.state if waf.policy_settings else None,
+                        "mode": waf.policy_settings.mode if waf.policy_settings else None
+                    } if waf.policy_settings else None
+                })
+            return wafs
+        except Exception as e:
+            logger.error(f"Failed to list WAFs: {e}")
+            return []
+
+    async def get_storage_report(self, subscription_id: Optional[str] = None, region: Optional[str] = None, resource_group: Optional[str] = None) -> List[Dict]:
+        """Get detailed storage report similar to the reference script"""
+        try:
+            target_subscription_id = subscription_id or self.subscription_id
+            if not target_subscription_id:
+                raise ValueError("No subscription ID provided")
+            
+            # Get Subscription Name
+            sub_name = target_subscription_id
+            try:
+                sub = self.subscription_client.subscriptions.get(target_subscription_id)
+                sub_name = sub.display_name
+            except Exception:
+                pass
+
+            storage_client = self.storage_client
+            if subscription_id and subscription_id != self.subscription_id:
+                storage_client = StorageManagementClient(self.credential, target_subscription_id)
+            elif not storage_client:
+                storage_client = StorageManagementClient(self.credential, target_subscription_id)
+
+            accounts = list(storage_client.storage_accounts.list())
+            
+            # Apply Filters
+            if region and region != 'All':
+                accounts = [a for a in accounts if a.location.lower() == region.lower()]
+            
+            if resource_group and resource_group != 'All':
+                accounts = [a for a in accounts if a.id.split('/')[4].lower() == resource_group.lower()]
+
+            report_data = []
+
+            def process_storage_account(account):
+                try:
+                    rg_name = account.id.split('/')[4]
+                    account_name = account.name
+                    location = account.location
+                    sku = account.sku.name
+                    
+                    # Get Keys
+                    keys = storage_client.storage_accounts.list_keys(rg_name, account_name)
+                    key = keys.keys[0].value
+                    conn_str = f"DefaultEndpointsProtocol=https;AccountName={account_name};AccountKey={key};EndpointSuffix=core.windows.net"
+                    
+                    total_size_bytes = 0
+                    last_activity = datetime.min
+                    container_count = 0
+                    
+                    # Blob Service
+                    try:
+                        blob_service = BlobServiceClient.from_connection_string(conn_str)
+                        containers = list(blob_service.list_containers())
+                        container_count = len(containers)
+                        
+                        # We limit the depth of checking to avoid timeout
+                        # Check up to 5 containers for last modified
+                        for container in containers[:5]:
+                            if container.last_modified:
+                                last_activity = max(last_activity, container.last_modified.replace(tzinfo=None))
+                            
+                    except Exception as e:
+                        # logger.warning(f"Blob service error for {account_name}: {e}")
+                        pass
+
+                    # Status & Archive Recommendation
+                    status = "Active"
+                    archive_rec = "No"
+                    
+                    last_activity_str = "Unknown"
+                    if last_activity != datetime.min:
+                        last_activity_str = last_activity.strftime("%Y-%m-%d %H:%M:%S")
+                        days_inactive = (datetime.now() - last_activity).days
+                        if days_inactive > 90:
+                            status = "Inactive"
+                            archive_rec = "Yes"
+                    
+                    return {
+                        "subscription_name": sub_name,
+                        "subscription_id": target_subscription_id,
+                        "storage_account": account_name,
+                        "resource_group": rg_name,
+                        "total_size_gb": round(total_size_bytes / (1024**3), 2),
+                        "last_activity": last_activity_str,
+                        "status": status,
+                        "sku": sku,
+                        "location": location,
+                        "container_count": container_count,
+                        "archive_recommendation": archive_rec
+                    }
+                except Exception as e:
+                    logger.error(f"Error processing {account.name}: {e}")
+                    return None
+
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                futures = [executor.submit(process_storage_account, acc) for acc in accounts]
+                for future in as_completed(futures):
+                    res = future.result()
+                    if res:
+                        report_data.append(res)
+            
+            return report_data
+
+        except Exception as e:
+            logger.error(f"Failed to generate storage report: {e}")
+            return []
 
 

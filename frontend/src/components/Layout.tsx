@@ -12,9 +12,12 @@ import {
   Bell,
   User,
   ChevronDown,
+  ChevronRight,
   BarChart3,
   Activity,
-  LogOut
+  LogOut,
+  Menu,
+  HardDrive
 } from 'lucide-react';
 import { useProgress } from '../contexts/ProgressContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -30,6 +33,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const { isProgressSidebarOpen, toggleProgressSidebar, progressItems } = useProgress();
   const { logout, user } = useAuth();
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [expandedMenus, setExpandedMenus] = useState<string[]>(['NSG']);
   
   const activeProgressItems = progressItems.filter(item => 
     item.status === 'in_progress' || item.status === 'pending'
@@ -39,149 +44,203 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     logout();
     navigate('/login');
   };
+
+  const toggleMenu = (menuName: string) => {
+    setExpandedMenus(prev => 
+      prev.includes(menuName) 
+        ? prev.filter(item => item !== menuName)
+        : [...prev, menuName]
+    );
+  };
+
   const navigation = [
-    { name: 'Dashboard', href: '/', icon: Cloud },
-    { name: 'NSGs', href: '/nsgs', icon: Shield },
-    { name: 'Backup', href: '/backup', icon: Database },
-    { name: 'Restore', href: '/restore', icon: RotateCcw },
-    { name: 'Golden Rule', href: '/golden-rule', icon: FileText },
-    { name: 'Reports', href: '/reports', icon: BarChart3 },
-    { name: 'NSG Validation', href: '/nsg-validation-enhanced', icon: Search },
-    { name: 'AI Agents', href: '/agents', icon: Bot },
-    { name: 'Settings', href: '/settings', icon: Settings },
+    { name: 'Dashboard', href: '/', icon: Cloud, isGroup: false },
+    { name: 'Storage', href: '/storage', icon: HardDrive, isGroup: false },
+    { 
+      name: 'NSG', 
+      icon: Shield,
+      isGroup: true,
+      children: [
+        { name: 'NSGs', href: '/nsgs', icon: Shield },
+        { name: 'Backup', href: '/backup', icon: Database },
+        { name: 'Restore', href: '/restore', icon: RotateCcw },
+        { name: 'Golden Rule', href: '/golden-rule', icon: FileText },
+        { name: 'Reports', href: '/reports', icon: BarChart3 },
+        { name: 'NSG Validation', href: '/nsg-validation-enhanced', icon: Search },
+        { name: 'AI Agents', href: '/agents', icon: Bot },
+      ]
+    },
+    { name: 'Settings', href: '/settings', icon: Settings, isGroup: false },
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-      {/* Header */}
-      <header className="bg-white/90 backdrop-blur-xl shadow-xl border-b border-slate-200/60 sticky top-0 z-50">
-        <div className="w-full px-4">
-          <div className="flex items-center h-20">
-            {/* Logo and Navigation */}
-            <div className="flex items-center shrink-0">
-              <div className="flex items-center group">
-                <div className="relative">
-                  <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl blur opacity-75 group-hover:opacity-100 transition duration-300"></div>
-                  <div className="relative bg-gradient-to-r from-blue-600 to-indigo-600 p-3 rounded-xl shadow-lg">
-                    <Cloud className="h-6 w-6 text-white" />
-                  </div>
-                </div>
-                <div className="ml-3 hidden lg:block">
-                  <span className="text-xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">CloudOpsAI</span>
-                </div>
-              </div>
+    <div className="min-h-screen bg-slate-50 flex">
+      {/* Sidebar */}
+      <aside 
+        className={`
+          fixed inset-y-0 left-0 z-50 bg-slate-900 text-slate-300 transition-all duration-300 ease-in-out shadow-xl flex flex-col
+          ${isSidebarOpen ? 'w-64' : 'w-20'}
+        `}
+      >
+        {/* Logo */}
+        <div className="h-16 flex items-center justify-center border-b border-slate-800 bg-slate-900">
+          <div className="flex items-center space-x-3 px-4 w-full">
+            <div className="bg-blue-600 p-2 rounded-lg shrink-0">
+              <Cloud className="h-5 w-5 text-white" />
             </div>
-              
-            <nav className="ml-4 flex items-center space-x-1 overflow-x-auto no-scrollbar">
-              {navigation.map((item) => {
-                const isActive = location.pathname === item.href;
-                return (
-                  <Link
-                    key={item.name}
-                    to={item.href}
-                    className={`
-                      relative px-3 py-2 rounded-xl font-semibold text-sm transition-all duration-300 flex items-center space-x-1 group whitespace-nowrap
-                      ${
-                        isActive
-                          ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/30'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-white/70 hover:shadow-lg'
-                      }
-                    `}
-                  >
-                    <item.icon className="h-4 w-4" />
-                    <span>{item.name}</span>
-                    {isActive && (
-                      <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-xl blur opacity-30 -z-10 animate-pulse"></div>
-                    )}
-                  </Link>
-                );
-              })}
-            </nav>
-
-            {/* Right side - User and Actions */}
-            <div className="flex items-center space-x-2 ml-4">
-              {/* Progress Monitor */}
-              <button 
-                onClick={toggleProgressSidebar}
-                className="relative p-2 text-slate-400 hover:text-slate-600 hover:bg-white/70 rounded-xl transition-all duration-300 hover:scale-110 group"
-              >
-                <Activity className="h-5 w-5" />
-                {activeProgressItems.length > 0 && (
-                  <span className="absolute top-2 right-2 flex h-2.5 w-2.5 rounded-full bg-blue-500 ring-2 ring-white">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500"></span>
-                  </span>
-                )}
-                <div className="absolute inset-0 bg-white/20 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-              </button>
-
-              {/* Notifications */}
-              <button className="relative p-2 text-slate-400 hover:text-slate-600 hover:bg-white/70 rounded-xl transition-all duration-300 hover:scale-110 group">
-                <Bell className="h-5 w-5" />
-                <span className="absolute top-2 right-2 block h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white animate-pulse"></span>
-                <div className="absolute inset-0 bg-white/20 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-              </button>
-
-              {/* User Menu */}
-              <div className="relative">
-                <button 
-                  onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                  className="flex items-center space-x-2 p-2 rounded-xl hover:bg-white/70 transition-all duration-300 hover:scale-105 group"
-                >
-                  <div className="h-9 w-9 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg group-hover:shadow-xl transition-shadow">
-                    <User className="h-4 w-4 text-white" />
-                  </div>
-                  <div className="hidden xl:block text-left">
-                    <div className="text-sm font-semibold text-slate-900">{user?.full_name || 'Admin User'}</div>
-                    <div className="text-xs text-slate-500">{user?.role || 'System Administrator'}</div>
-                  </div>
-                  <ChevronDown className={`h-4 w-4 text-slate-400 group-hover:text-slate-600 transition-transform duration-300 ${isUserMenuOpen ? 'rotate-180' : ''}`} />
-
-                </button>
-
-                {/* Dropdown Menu */}
-                {isUserMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-slate-100 py-1 animate-fade-in z-50">
-                    <button
-                      onClick={() => {
-                        navigate('/settings');
-                        setIsUserMenuOpen(false);
-                      }}
-                      className="flex items-center w-full px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-blue-600 transition-colors"
-                    >
-                      <Settings className="h-4 w-4 mr-2" />
-                      Settings
-                    </button>
-                    <div className="h-px bg-slate-100 my-1"></div>
-                    <button
-                      onClick={handleLogout}
-                      className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
-                    >
-                      <LogOut className="h-4 w-4 mr-2" />
-                      Sign out
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
+            {isSidebarOpen && (
+              <span className="text-lg font-bold text-white whitespace-nowrap overflow-hidden">CloudOpsAI</span>
+            )}
           </div>
         </div>
-      </header>
 
-      {/* Main Content */}
-      <main className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 transition-all duration-300 ${
-        isProgressSidebarOpen ? 'mr-96' : ''
-      }`}>
-        <div className="animate-fade-in">
-          {children}
+        {/* Navigation */}
+        <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1 scrollbar-thin scrollbar-thumb-slate-700">
+          {navigation.map((item) => (
+            <div key={item.name} className="mb-2">
+              {item.isGroup ? (
+                <div className="space-y-1">
+                  <button
+                    onClick={() => isSidebarOpen ? toggleMenu(item.name) : setIsSidebarOpen(true)}
+                    className={`
+                      w-full flex items-center justify-between px-3 py-2 rounded-lg transition-colors duration-200
+                      ${expandedMenus.includes(item.name) ? 'bg-slate-800 text-white' : 'hover:bg-slate-800 hover:text-white'}
+                    `}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <item.icon className="h-5 w-5" />
+                      {isSidebarOpen && <span className="font-medium">{item.name}</span>}
+                    </div>
+                    {isSidebarOpen && (
+                      expandedMenus.includes(item.name) 
+                        ? <ChevronDown className="h-4 w-4" />
+                        : <ChevronRight className="h-4 w-4" />
+                    )}
+                  </button>
+                  
+                  {/* Submenu */}
+                  {isSidebarOpen && expandedMenus.includes(item.name) && (
+                    <div className="mt-1 space-y-1 pl-4">
+                      {item.children?.map((child) => {
+                        const isActive = location.pathname === child.href;
+                        return (
+                          <Link
+                            key={child.name}
+                            to={child.href}
+                            className={`
+                              flex items-center space-x-3 px-3 py-2 rounded-lg text-sm transition-all duration-200
+                              ${isActive 
+                                ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' 
+                                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                              }
+                            `}
+                          >
+                            <child.icon className="h-4 w-4" />
+                            <span>{child.name}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <Link
+                  to={item.href}
+                  className={`
+                    flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors duration-200
+                    ${location.pathname === item.href 
+                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' 
+                      : 'hover:bg-slate-800 hover:text-white'
+                    }
+                  `}
+                >
+                  <item.icon className="h-5 w-5" />
+                  {isSidebarOpen && <span className="font-medium">{item.name}</span>}
+                </Link>
+              )}
+            </div>
+          ))}
+        </nav>
+
+        {/* User Profile & Logout */}
+        <div className="p-4 border-t border-slate-800 bg-slate-900">
+          <div className={`flex items-center ${isSidebarOpen ? 'justify-between' : 'justify-center'}`}>
+            <div className="flex items-center space-x-3">
+              <div className="bg-slate-700 p-2 rounded-full">
+                <User className="h-5 w-5 text-slate-300" />
+              </div>
+              {isSidebarOpen && (
+                <div className="overflow-hidden">
+                  <p className="text-sm font-medium text-white truncate">{user?.username || 'User'}</p>
+                  <p className="text-xs text-slate-400 truncate">{user?.role || 'Admin'}</p>
+                </div>
+              )}
+            </div>
+            {isSidebarOpen && (
+              <button 
+                onClick={handleLogout}
+                className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                title="Logout"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            )}
+          </div>
         </div>
-      </main>
-      
-      {/* Progress Sidebar */}
-      <ProgressSidebar 
-        isOpen={isProgressSidebarOpen} 
-        onClose={() => toggleProgressSidebar()} 
-      />
+      </aside>
+
+      {/* Main Content Area */}
+      <div className={`flex-1 flex flex-col min-h-screen transition-all duration-300 ${isSidebarOpen ? 'ml-64' : 'ml-20'}`}>
+        {/* Top Header */}
+        <header className="h-16 bg-white border-b border-slate-200 sticky top-0 z-40 px-6 flex items-center justify-between shadow-sm">
+          <div className="flex items-center space-x-4">
+            <button 
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <h1 className="text-xl font-semibold text-slate-800">
+              {location.pathname === '/' ? 'Dashboard' : 
+               location.pathname.substring(1).split('/').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' / ')}
+            </h1>
+          </div>
+
+          <div className="flex items-center space-x-4">
+            {/* Notifications */}
+            <button className="relative p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors">
+              <Bell className="h-5 w-5" />
+              <span className="absolute top-1.5 right-1.5 h-2 w-2 bg-red-500 rounded-full border-2 border-white"></span>
+            </button>
+            
+            {/* Progress Sidebar Toggle */}
+            <button 
+              onClick={toggleProgressSidebar}
+              className={`
+                relative p-2 rounded-lg transition-colors flex items-center space-x-2
+                ${isProgressSidebarOpen ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-100'}
+              `}
+            >
+              <Activity className="h-5 w-5" />
+              {activeProgressItems.length > 0 && (
+                <span className="absolute -top-1 -right-1 h-5 w-5 bg-blue-600 text-white text-xs font-bold rounded-full flex items-center justify-center border-2 border-white">
+                  {activeProgressItems.length}
+                </span>
+              )}
+            </button>
+          </div>
+        </header>
+
+        {/* Page Content */}
+        <main className="flex-1 p-6 overflow-x-hidden bg-slate-50">
+          <div className="max-w-7xl mx-auto space-y-6">
+            {children}
+          </div>
+        </main>
+      </div>
+
+      {/* Right Sidebar (Progress) */}
+      <ProgressSidebar />
     </div>
   );
 };
