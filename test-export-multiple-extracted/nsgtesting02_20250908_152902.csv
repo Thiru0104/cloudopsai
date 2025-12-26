@@ -1,7 +1,0 @@
-Subscription,Resource Group,NSG Name,Rule Name,Direction,Priority,Access,Protocol,Source,Destination,Owner Address,Destination Address,Source ASG,Destination ASG,Description
-Thiru,test,nsgtesting02,AllowVnetInBound,Inbound,65000,Allow,*,VirtualNetwork,VirtualNetwork,VirtualNetwork,VirtualNetwork,None,None,Allow inbound traffic from all VMs in VNET
-Thiru,test,nsgtesting02,AllowAzureLoadBalancerInBound,Inbound,65001,Allow,*,AzureLoadBalancer,*,AzureLoadBalancer,*,None,None,Allow inbound traffic from azure load balancer
-Thiru,test,nsgtesting02,DenyAllInBound,Inbound,65500,Deny,*,*,*,*,*,None,None,Deny all inbound traffic
-Thiru,test,nsgtesting02,AllowVnetOutBound,Outbound,65000,Allow,*,VirtualNetwork,VirtualNetwork,VirtualNetwork,VirtualNetwork,None,None,Allow outbound traffic from all VMs to all VMs in VNET
-Thiru,test,nsgtesting02,AllowInternetOutBound,Outbound,65001,Allow,*,*,Internet,*,Internet,None,None,Allow outbound traffic from all VMs to Internet
-Thiru,test,nsgtesting02,DenyAllOutBound,Outbound,65500,Deny,*,*,*,*,*,None,None,Deny all outbound traffic

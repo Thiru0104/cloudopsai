@@ -1,6 +1,0 @@
-Subscription,Resource Group,NSG Name,Rule Name,Direction,Priority,Access,Protocol,Source,Destination,Owner Address,Destination Address,Source ASG,Destination ASG,Description
-Thiru,opanai,nsgtesting01,AllowCidrBlockCustom8080Inbound,Inbound,100,Allow,*,*,8080,*,10.20.30.0,None,None,NSG rule AllowCidrBlockCustom8080Inbound
-Thiru,opanai,nsgtesting01,AllowApplicationSecurityGroupCustom8080Inbound,Inbound,110,Allow,*,*,8080,*,*,pep-test-asg-01,None,NSG rule AllowApplicationSecurityGroupCustom8080Inbound
-Thiru,opanai,nsgtesting01,AllowCidrBlock,Inbound,120,Allow,*,*,8080,*,*,None,None,NSG rule AllowCidrBlock
-Thiru,opanai,nsgtesting01,Allow25,Inbound,140,Allow,*,*,8080,10.0.0.0/22,*,None,pep-test-asg-01,NSG rule Allow25
-Thiru,opanai,nsgtesting01,Allow123,Outbound,130,Allow,*,*,8080,*,*,None,None,NSG rule Allow123

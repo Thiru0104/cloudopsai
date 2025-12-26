@@ -1,6 +1,0 @@
-<step title="Incoming Request" date="2025-12-11T12:07:01.176" instance="23cdad" url="/logstream" method="GET" type="request" pid="770,1,15" Host="web-nsgtool-prod-cu.scm.azurewebsites.net" User-Agent="AZURECLI/2.77.0 (MSI)" Accept-Encoding="identity" Authorization="Bea..." x-ms-client-request-id="46b10e3d-d689-11f0-b83c-70cd0dbf60a8" X-ARR-LOG-ID="46b10e3d-d689-11f0-b83c-70cd0dbf60a8" CLIENT-IP="86.20.233.31:64289" X-SITE-DEPLOYMENT-ID="web-nsgtool-prod-cu" WAS-DEFAULT-HOSTNAME="web-nsgtool-prod-cu.scm.azurewebsites.net" X-Forwarded-Proto="https" X-AppService-Proto="https" X-Forwarded-TlsVersion="1.3" X-WAWS-Unencoded-URL="/logstream" X-Client-IP="86.20.233.31" X-Client-Port="64289" >
-  <step title="Cleanup Xml Logs" date="2025-12-11T12:07:01.195" /><!-- duration: 15ms -->
-  <step title="LogStreamHandlerMiddleware.Invoke" date="2025-12-11T12:07:01.229" /><!-- duration: 426ms -->
-  <step title="Error occurred" date="2025-12-11T12:30:01.806" type="error" text="LogStreamManager: ProcessRequest end" /><!-- duration: 12ms -->
-  <step title="Outgoing response" date="2025-12-11T12:30:01.955" type="response" statusCode="200" statusText="OK" /><!-- duration: 12ms -->
-</step><!-- duration: 1380807ms -->

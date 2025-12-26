@@ -1,2 +1,0 @@
-Resource_Type,Resource_Name,Resource_Group,Location,Rule_Name,Priority,Direction,Access,Protocol,Source_Port,Destination_Port,Source_Address,Destination_Address,Subscription_ID,Backed_Up_At
-NSG,NSG-test-nsg-1,test-rg,East US,,,,,,,,,,test-sub,2025-09-05T21:37:04.814401Z

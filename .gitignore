@@ -22,10 +22,30 @@ coverage/
 
 # Logs
 logs/
+logs*/
+logs_extracted/
+logs2_extracted/
+extracted_single/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Test Exports and Data
+test-export-*
+test_*.csv
+test_*.xlsx
+test_*.json
+test_*.txt
+*.csv
+!sample-nsg-rules.csv
+*.xlsx
+
+# Backups and SSL
+backups/
+nginx/ssl/
+*.bak
+*.tmp
 
 # IDE
 .vscode/

@@ -1,2 +1,0 @@
-Subscription,Resource Group,NSG Name,Rule Name,Direction,Priority,Access,Protocol,Source,Destination,Owner Address,Destination Address,Source ASG,Destination ASG,Description
-0a519345,default-rg,NSG-EUS-nsg,No Rules Configured,N/A,N/A,N/A,N/A,N/A,N/A,N/A,N/A,None,None,NSG NSG-EUS-nsg has no security rules configured
