@@ -1,0 +1,13 @@
+# FastAPI and ASGI
+fastapi
+uvicorn
+python-multipart
+python-dotenv
+
+# Database
+sqlalchemy
+asyncpg
+
+# Utilities
+aiofiles
+python-dateutil

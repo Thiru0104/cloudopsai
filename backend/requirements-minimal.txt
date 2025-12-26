@@ -1,0 +1,32 @@
+# FastAPI and ASGI
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-dotenv==1.0.0
+
+# Database
+sqlalchemy[asyncio]==2.0.23
+asyncpg==0.29.0
+alembic==1.12.1
+
+# Azure SDK (core packages)
+azure-identity==1.15.0
+azure-mgmt-network==29.0.0
+azure-mgmt-resource==23.0.1
+
+# Redis and Celery
+redis==5.0.1
+celery==5.3.4
+
+# Utilities
+pydantic==2.5.0
+pydantic-settings==2.1.0
+httpx==0.25.2
+aiofiles==23.2.1
+python-dateutil==2.8.2
+
+# Security
+cryptography==45.0.6
+bcrypt==4.1.2

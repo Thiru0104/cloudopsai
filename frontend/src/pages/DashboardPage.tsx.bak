@@ -1,0 +1,234 @@
+import React from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { 
+  Shield, 
+  Users, 
+  HardDrive, 
+  AlertTriangle, 
+  TrendingUp, 
+  Activity,
+  RefreshCw,
+  Plus,
+  Download,
+  Bot
+} from 'lucide-react'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
+import { NSGOverviewChart } from '@/components/charts/NSGOverviewChart'
+import { ComplianceChart } from '@/components/charts/ComplianceChart'
+import { RecentActivity } from '@/components/RecentActivity'
+import { QuickActions } from '@/components/QuickActions'
+import { api } from '@/lib/api'
+
+interface DashboardStats {
+  total_nsgs: number
+  total_asgs: number
+  total_backups: number
+  high_risk_nsgs: number
+  compliance_score: number
+  recent_changes: number
+}
+
+export const DashboardPage: React.FC = () => {
+  const { data: stats, isLoading: statsLoading } = useQuery<DashboardStats>({
+    queryKey: ['dashboard-stats'],
+    queryFn: () => api.get('/dashboard/stats').then(res => res.data),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  })
+
+  const { data: recentActivity, isLoading: activityLoading } = useQuery({
+    queryKey: ['recent-activity'],
+    queryFn: () => api.get('/audit/recent').then(res => res.data),
+    staleTime: 2 * 60 * 1000, // 2 minutes
+  })
+
+  if (statsLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <LoadingSpinner size="lg" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Page Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+            Dashboard
+          </h1>
+          <p className="text-gray-600 dark:text-gray-400">
+            Overview of your Azure NSG/ASG management platform
+          </p>
+        </div>
+        <div className="flex space-x-3">
+          <Button variant="outline" size="sm">
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </Button>
+          <Button size="sm">
+            <Plus className="w-4 h-4 mr-2" />
+            Quick Action
+          </Button>
+        </div>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total NSGs</CardTitle>
+            <Shield className="h-4 w-4 text-blue-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats?.total_nsgs || 0}</div>
+            <p className="text-xs text-gray-600 dark:text-gray-400">
+              Network Security Groups
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total ASGs</CardTitle>
+            <Users className="h-4 w-4 text-green-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats?.total_asgs || 0}</div>
+            <p className="text-xs text-gray-600 dark:text-gray-400">
+              Application Security Groups
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">High Risk NSGs</CardTitle>
+            <AlertTriangle className="h-4 w-4 text-red-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-red-600">
+              {stats?.high_risk_nsgs || 0}
+            </div>
+            <p className="text-xs text-gray-600 dark:text-gray-400">
+              Require attention
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Compliance Score</CardTitle>
+            <TrendingUp className="h-4 w-4 text-purple-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {stats?.compliance_score || 0}%
+            </div>
+            <p className="text-xs text-gray-600 dark:text-gray-400">
+              Overall compliance
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Charts Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>NSG Overview</CardTitle>
+            <CardDescription>
+              Distribution of NSGs by risk level and compliance status
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <NSGOverviewChart />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Compliance Trends</CardTitle>
+            <CardDescription>
+              Compliance score trends over the last 30 days
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ComplianceChart />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Quick Actions and Recent Activity */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent Activity</CardTitle>
+              <CardDescription>
+                Latest changes and activities in your NSG/ASG environment
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <RecentActivity activities={recentActivity || []} />
+            </CardContent>
+          </Card>
+        </div>
+
+        <div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Quick Actions</CardTitle>
+              <CardDescription>
+                Common tasks and shortcuts
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <QuickActions />
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {/* AI Agent Status */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center">
+            <Bot className="w-5 h-5 mr-2" />
+            AI Agent Status
+          </CardTitle>
+          <CardDescription>
+            Active AI agents and their current status
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="flex items-center space-x-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
+              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+              <div>
+                <p className="text-sm font-medium">Security Scanner</p>
+                <p className="text-xs text-gray-500">Active</p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+              <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+              <div>
+                <p className="text-sm font-medium">Compliance Monitor</p>
+                <p className="text-xs text-gray-500">Running</p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
+              <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
+              <div>
+                <p className="text-sm font-medium">Remediation Agent</p>
+                <p className="text-xs text-gray-500">Idle</p>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}

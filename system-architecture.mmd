@@ -1,0 +1,147 @@
+```mermaid
+graph TB
+    %% Frontend Layer
+    subgraph "Frontend (React + Vite)"
+        UI["🖥️ User Interface"]
+        Pages["📄 Pages<br/>- Dashboard<br/>- Agents<br/>- NSGs<br/>- Reports"]
+        Components["🧩 Components<br/>- CreateAgentModal<br/>- NSGTable<br/>- Charts"]
+        UI --> Pages
+        UI --> Components
+    end
+
+    %% Backend API Layer
+    subgraph "Backend API (FastAPI)"
+        API["🔌 REST API<br/>Port: 8000"]
+        AgentEndpoints["🤖 Agent Endpoints<br/>/api/v1/agents"]
+        NSGEndpoints["🛡️ NSG Endpoints<br/>/api/v1/nsgs"]
+        AuthEndpoints["🔐 Auth Endpoints<br/>/api/v1/auth"]
+        
+        API --> AgentEndpoints
+        API --> NSGEndpoints
+        API --> AuthEndpoints
+    end
+
+    %% Core Services Layer
+    subgraph "Core Services"
+        AgentService["🤖 Agent Service<br/>- Agent Management<br/>- Execution Engine<br/>- Progress Tracking"]
+        AIService["🧠 AI Service<br/>- OpenAI Integration<br/>- Model Management<br/>- Token Optimization"]
+        AzureService["☁️ Azure Service<br/>- NSG Management<br/>- Resource Discovery<br/>- Authentication"]
+        
+        AgentService --> AIService
+        AgentService --> AzureService
+    end
+
+    %% Database Layer
+    subgraph "Database Layer"
+        PostgreSQL["🐘 PostgreSQL<br/>- Agents<br/>- NSGs<br/>- Executions<br/>- Users"]
+        Redis["🔴 Redis<br/>- Caching<br/>- Session Storage<br/>- Background Tasks"]
+    end
+
+    %% External Services
+    subgraph "External Services"
+        OpenAI["🤖 OpenAI<br/>- GPT-4O<br/>- GPT-4 Turbo<br/>- GPT-3.5 Turbo"]
+        AzureCloud["☁️ Azure Cloud<br/>- Network Security Groups<br/>- Resource Groups<br/>- Subscriptions"]
+        AzureStorage["💾 Azure Blob Storage<br/>- Backups<br/>- Reports<br/>- Exports"]
+    end
+
+    %% Agent Types
+    subgraph "Agent Types"
+        NSGAnalyzer["🔍 NSG Analyzer<br/>- Security Analysis<br/>- Rule Validation<br/>- Compliance Check"]
+        Remediator["🔧 Remediation Agent<br/>- Auto-Fix Rules<br/>- Security Hardening<br/>- Best Practices"]
+        ComplianceChecker["✅ Compliance Checker<br/>- Policy Validation<br/>- Audit Reports<br/>- Standards Check"]
+        SecurityAuditor["🛡️ Security Auditor<br/>- Vulnerability Scan<br/>- Risk Assessment<br/>- Threat Analysis"]
+    end
+
+    %% Data Flow Connections
+    UI -.->|"HTTP/REST"| API
+    AgentEndpoints --> AgentService
+    NSGEndpoints --> AzureService
+    
+    AgentService --> PostgreSQL
+    AgentService --> Redis
+    AzureService --> PostgreSQL
+    
+    AIService -.->|"API Calls"| OpenAI
+    AzureService -.->|"Azure SDK"| AzureCloud
+    AzureService -.->|"Backup Storage"| AzureStorage
+    
+    AgentService --> NSGAnalyzer
+    AgentService --> Remediator
+    AgentService --> ComplianceChecker
+    AgentService --> SecurityAuditor
+
+    %% Docker Infrastructure
+    subgraph "Docker Infrastructure"
+        DockerCompose["🐳 Docker Compose<br/>- PostgreSQL Container<br/>- Redis Container<br/>- Network Bridge"]
+    end
+    
+    PostgreSQL -.->|"Container"| DockerCompose
+    Redis -.->|"Container"| DockerCompose
+
+    %% Styling
+    classDef frontend fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef backend fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef service fill:#e8f5e8,stroke:#1b5e20,stroke-width:2px
+    classDef database fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef external fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+    classDef agent fill:#f1f8e9,stroke:#33691e,stroke-width:2px
+    classDef docker fill:#e3f2fd,stroke:#0d47a1,stroke-width:2px
+    
+    class UI,Pages,Components frontend
+    class API,AgentEndpoints,NSGEndpoints,AuthEndpoints backend
+    class AgentService,AIService,AzureService service
+    class PostgreSQL,Redis database
+    class OpenAI,AzureCloud,AzureStorage external
+    class NSGAnalyzer,Remediator,ComplianceChecker,SecurityAuditor agent
+    class DockerCompose docker
+```
+
+## System Architecture Overview
+
+### 🏗️ **Architecture Layers**
+
+1. **Frontend Layer (React + Vite)**
+   - Modern React application with TypeScript
+   - Responsive UI components for agent and NSG management
+   - Real-time updates and progress tracking
+
+2. **Backend API Layer (FastAPI)**
+   - High-performance async REST API
+   - Comprehensive endpoint coverage
+   - Built-in documentation and validation
+
+3. **Core Services Layer**
+   - Agent Service: Manages agent lifecycle and execution
+   - AI Service: Handles OpenAI integration and model management
+   - Azure Service: Manages Azure resource interactions
+
+4. **Database Layer**
+   - PostgreSQL: Primary data storage with async operations
+   - Redis: Caching and session management
+
+5. **External Integrations**
+   - OpenAI: AI-powered analysis and recommendations
+   - Azure Cloud: NSG management and resource discovery
+   - Azure Storage: Backup and report storage
+
+### 🤖 **Agent Architecture**
+
+- **NSG Analyzer**: Performs security analysis and rule validation
+- **Remediation Agent**: Automatically fixes security issues
+- **Compliance Checker**: Validates against security policies
+- **Security Auditor**: Conducts comprehensive security assessments
+
+### 🔄 **Data Flow**
+
+1. User interacts with React frontend
+2. Frontend sends requests to FastAPI backend
+3. Backend services process requests using core services
+4. Services interact with databases and external APIs
+5. Results are returned through the API to the frontend
+6. Real-time updates are provided via WebSocket connections
+
+### 🐳 **Infrastructure**
+
+- Docker Compose orchestrates PostgreSQL and Redis containers
+- Async operations throughout the stack for optimal performance
+- Scalable architecture ready for cloud deployment

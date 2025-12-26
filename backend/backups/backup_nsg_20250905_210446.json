@@ -1,0 +1,24 @@
+{
+  "backup_metadata": {
+    "backup_id": "backup-7087",
+    "created_at": "2025-09-05T21:04:44.052032Z",
+    "backup_type": "scheduled",
+    "resource_type": "nsg",
+    "storage_account": "thirustorage001",
+    "container": "nsg-backups"
+  },
+  "nsgs": [
+    {
+      "id": 1,
+      "name": "NSG-1",
+      "resource_group": "default-rg",
+      "location": "East US",
+      "subscription_id": "0a519345-d9f4-400c-a3b4-e8379de6638e",
+      "inbound_rules": [],
+      "outbound_rules": [],
+      "tags": {},
+      "backed_up_at": "2025-09-05T21:04:46.375599Z"
+    }
+  ],
+  "asgs": []
+}

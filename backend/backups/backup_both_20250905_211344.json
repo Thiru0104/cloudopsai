@@ -1,0 +1,49 @@
+{
+  "backup_metadata": {
+    "backup_id": "backup-9240",
+    "created_at": "2025-09-05T21:13:41.633796Z",
+    "backup_type": "scheduled",
+    "resource_type": "both",
+    "storage_account": "thirustorage001",
+    "container": "nsg-backups"
+  },
+  "nsgs": [
+    {
+      "id": 1,
+      "name": "NSG-1",
+      "resource_group": "default-rg",
+      "location": "East US",
+      "subscription_id": "0a519345-d9f4-400c-a3b4-e8379de6638e",
+      "inbound_rules": [],
+      "outbound_rules": [],
+      "tags": {},
+      "backed_up_at": "2025-09-05T21:13:44.076350Z"
+    }
+  ],
+  "asgs": [
+    {
+      "id": "/subscriptions/0a519345-d9f4-400c-a3b4-e8379de6638e/resourceGroups/rg-production/providers/Microsoft.Network/applicationSecurityGroups/asg-web-servers",
+      "name": "ASG-/subscriptions/0a519345-d9f4-400c-a3b4-e8379de6638e/resourceGroups/rg-production/providers/Microsoft.Network/applicationSecurityGroups/asg-web-servers",
+      "resource_group": "default-rg",
+      "location": "East US",
+      "subscription_id": "",
+      "backed_up_at": "2025-09-05T21:13:44.076350Z"
+    },
+    {
+      "id": "/subscriptions/0a519345-d9f4-400c-a3b4-e8379de6638e/resourceGroups/rg-production/providers/Microsoft.Network/applicationSecurityGroups/asg-db-servers",
+      "name": "ASG-/subscriptions/0a519345-d9f4-400c-a3b4-e8379de6638e/resourceGroups/rg-production/providers/Microsoft.Network/applicationSecurityGroups/asg-db-servers",
+      "resource_group": "default-rg",
+      "location": "East US",
+      "subscription_id": "",
+      "backed_up_at": "2025-09-05T21:13:44.076350Z"
+    },
+    {
+      "id": "/subscriptions/0a519345-d9f4-400c-a3b4-e8379de6638e/resourceGroups/rg-development/providers/Microsoft.Network/applicationSecurityGroups/asg-app-tier",
+      "name": "ASG-/subscriptions/0a519345-d9f4-400c-a3b4-e8379de6638e/resourceGroups/rg-development/providers/Microsoft.Network/applicationSecurityGroups/asg-app-tier",
+      "resource_group": "default-rg",
+      "location": "East US",
+      "subscription_id": "",
+      "backed_up_at": "2025-09-05T21:13:44.076350Z"
+    }
+  ]
+}

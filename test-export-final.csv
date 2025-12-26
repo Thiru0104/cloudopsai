@@ -1,0 +1,9 @@
+HTTP/1.0 500 Internal Server Error
+Server: BaseHTTP/0.6 Python/3.10.10
+Date: Mon, 25 Aug 2025 14:12:39 GMT
+Content-Type: application/json
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
+Access-Control-Allow-Headers: Content-Type
+
+{"error": "Export failed: local variable 'io' referenced before assignment"}

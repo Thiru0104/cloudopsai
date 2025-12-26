@@ -1,0 +1,7 @@
+Subscription,Resource Group,NSG Name,Rule Name,Direction,Priority,Access,Protocol,Source,Destination,Owner Address,Destination Address,Source ASG,Destination ASG,Description
+0a519345,default-rg,NSG-3,AllowVnetInBound,Inbound,65000,Allow,*,VirtualNetwork,VirtualNetwork,VirtualNetwork,VirtualNetwork,None,None,Allow inbound traffic from all VMs in VNET
+0a519345,default-rg,NSG-3,AllowAzureLoadBalancerInBound,Inbound,65001,Allow,*,AzureLoadBalancer,*,AzureLoadBalancer,*,None,None,Allow inbound traffic from azure load balancer
+0a519345,default-rg,NSG-3,DenyAllInBound,Inbound,65500,Deny,*,*,*,*,*,None,None,Deny all inbound traffic
+0a519345,default-rg,NSG-3,AllowVnetOutBound,Outbound,65000,Allow,*,VirtualNetwork,VirtualNetwork,VirtualNetwork,VirtualNetwork,None,None,Allow outbound traffic from all VMs to all VMs in VNET
+0a519345,default-rg,NSG-3,AllowInternetOutBound,Outbound,65001,Allow,*,*,Internet,*,Internet,None,None,Allow outbound traffic from all VMs to Internet
+0a519345,default-rg,NSG-3,DenyAllOutBound,Outbound,65500,Deny,*,*,*,*,*,None,None,Deny all outbound traffic

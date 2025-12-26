@@ -1,0 +1,24 @@
+{
+  "backup_metadata": {
+    "backup_id": "backup-3057",
+    "created_at": "2025-09-05T21:37:53.829001Z",
+    "backup_type": "scheduled",
+    "resource_type": "nsg",
+    "storage_account": "testaccount",
+    "container": "nsg-backups"
+  },
+  "nsgs": [
+    {
+      "id": "test-nsg-1",
+      "name": "NSG-test-nsg-1",
+      "resource_group": "test-rg",
+      "location": "East US",
+      "subscription_id": "test-sub",
+      "inbound_rules": [],
+      "outbound_rules": [],
+      "tags": {},
+      "backed_up_at": "2025-09-05T21:37:55.560794Z"
+    }
+  ],
+  "asgs": []
+}

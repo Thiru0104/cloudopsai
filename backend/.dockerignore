@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+venv/
+.venv/
+
+# Git & tooling
+.git/
+.gitignore
+.DS_Store
+
+# Env & secrets
+.env
+.env.*
+
+# Logs and backups
+logs/
+backups/
+tmp/
+data/
+storage/*_backup.json
+
+# Tests and local files
+tests/
+notebooks/
+
+# Frontend build artifacts (not needed for backend image)
+frontend/
+
+# Node modules (if present)
+node_modules/
+
+# Docker
+Dockerfile.dev
+.dockerignore

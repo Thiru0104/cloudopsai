@@ -1,0 +1,354 @@
+import React, { useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
+import { 
+  Shield, 
+  Search, 
+  Filter, 
+  Plus, 
+  Download, 
+  RefreshCw,
+  Eye,
+  Edit,
+  Trash2,
+  AlertTriangle,
+  CheckCircle,
+  Clock,
+  MoreHorizontal
+} from 'lucide-react'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
+import { Badge } from '@/components/ui/Badge'
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
+import { DataTable } from '@/components/ui/DataTable'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/DropdownMenu'
+import { NSGForm } from '@/components/forms/NSGForm'
+import { api } from '@/lib/api'
+import { formatDistanceToNow } from 'date-fns'
+
+interface NSG {
+  id: string
+  name: string
+  resource_group: string
+  subscription_id: string
+  location: string
+  compliance_score: number
+  risk_level: 'low' | 'medium' | 'high' | 'critical'
+  total_rules: number
+  inbound_rules_count: number
+  outbound_rules_count: number
+  is_monitored: boolean
+  last_sync: string
+  tags: Record<string, string>
+}
+
+const columns = [
+  {
+    accessorKey: 'name',
+    header: 'Name',
+    cell: ({ row }: any) => (
+      <div className="flex items-center space-x-2">
+        <Shield className="w-4 h-4 text-blue-600" />
+        <span className="font-medium">{row.original.name}</span>
+      </div>
+    ),
+  },
+  {
+    accessorKey: 'resource_group',
+    header: 'Resource Group',
+  },
+  {
+    accessorKey: 'location',
+    header: 'Location',
+  },
+  {
+    accessorKey: 'compliance_score',
+    header: 'Compliance',
+    cell: ({ row }: any) => {
+      const score = row.original.compliance_score
+      const color = score >= 90 ? 'green' : score >= 70 ? 'yellow' : 'red'
+      return (
+        <Badge variant={color === 'green' ? 'success' : color === 'yellow' ? 'warning' : 'destructive'}>
+          {score}%
+        </Badge>
+      )
+    },
+  },
+  {
+    accessorKey: 'risk_level',
+    header: 'Risk Level',
+    cell: ({ row }: any) => {
+      const risk = row.original.risk_level
+      const variants = {
+        low: 'success',
+        medium: 'warning',
+        high: 'destructive',
+        critical: 'destructive'
+      } as const
+      return <Badge variant={variants[risk]}>{risk}</Badge>
+    },
+  },
+  {
+    accessorKey: 'total_rules',
+    header: 'Rules',
+    cell: ({ row }: any) => (
+      <div className="text-sm">
+        <div>{row.original.total_rules} total</div>
+        <div className="text-gray-500">
+          {row.original.inbound_rules_count} in / {row.original.outbound_rules_count} out
+        </div>
+      </div>
+    ),
+  },
+  {
+    accessorKey: 'last_sync',
+    header: 'Last Sync',
+    cell: ({ row }: any) => (
+      <div className="text-sm text-gray-500">
+        {formatDistanceToNow(new Date(row.original.last_sync), { addSuffix: true })}
+      </div>
+    ),
+  },
+  {
+    id: 'actions',
+    header: 'Actions',
+    cell: ({ row }: any) => <ActionMenu nsg={row.original} />,
+  },
+]
+
+const ActionMenu: React.FC<{ nsg: NSG }> = ({ nsg }) => {
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+
+  const deleteMutation = useMutation({
+    mutationFn: () => api.delete(`/nsgs/${nsg.id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['nsgs'] })
+    },
+  })
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="sm">
+          <MoreHorizontal className="w-4 h-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => navigate(`/nsgs/${nsg.id}`)}>
+          <Eye className="w-4 h-4 mr-2" />
+          View Details
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => navigate(`/nsgs/${nsg.id}/edit`)}>
+          <Edit className="w-4 h-4 mr-2" />
+          Edit
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => navigate(`/nsgs/${nsg.id}/backup`)}>
+          <Download className="w-4 h-4 mr-2" />
+          Backup
+        </DropdownMenuItem>
+        <DropdownMenuItem 
+          onClick={() => deleteMutation.mutate()}
+          className="text-red-600"
+        >
+          <Trash2 className="w-4 h-4 mr-2" />
+          Delete
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+export const NSGsPage: React.FC = () => {
+  const navigate = useNavigate()
+  const [searchTerm, setSearchTerm] = useState('')
+  const [riskFilter, setRiskFilter] = useState<string>('all')
+  const [complianceFilter, setComplianceFilter] = useState<string>('all')
+  const [showCreateForm, setShowCreateForm] = useState(false)
+
+  const { data: nsgs, isLoading, refetch } = useQuery<NSG[]>({
+    queryKey: ['nsgs', searchTerm, riskFilter, complianceFilter],
+    queryFn: () => api.get('/nsgs', {
+      params: {
+        search: searchTerm,
+        risk_level: riskFilter !== 'all' ? riskFilter : undefined,
+        compliance_min: complianceFilter === 'compliant' ? 80 : undefined,
+      }
+    }).then(res => res.data),
+    staleTime: 2 * 60 * 1000, // 2 minutes
+  })
+
+  const filteredNSGs = nsgs?.filter(nsg => {
+    if (searchTerm && !nsg.name.toLowerCase().includes(searchTerm.toLowerCase())) {
+      return false
+    }
+    if (riskFilter !== 'all' && nsg.risk_level !== riskFilter) {
+      return false
+    }
+    if (complianceFilter === 'compliant' && nsg.compliance_score < 80) {
+      return false
+    }
+    return true
+  }) || []
+
+  const stats = {
+    total: nsgs?.length || 0,
+    highRisk: nsgs?.filter(n => n.risk_level === 'high' || n.risk_level === 'critical').length || 0,
+    compliant: nsgs?.filter(n => n.compliance_score >= 80).length || 0,
+    monitored: nsgs?.filter(n => n.is_monitored).length || 0,
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Page Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+            Network Security Groups
+          </h1>
+          <p className="text-gray-600 dark:text-gray-400">
+            Manage and monitor your Azure NSGs
+          </p>
+        </div>
+        <div className="flex space-x-3">
+          <Button variant="outline" onClick={() => refetch()}>
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </Button>
+          <Button onClick={() => setShowCreateForm(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            Create NSG
+          </Button>
+        </div>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total NSGs</CardTitle>
+            <Shield className="h-4 w-4 text-blue-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.total}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">High Risk</CardTitle>
+            <AlertTriangle className="h-4 w-4 text-red-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-red-600">{stats.highRisk}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Compliant</CardTitle>
+            <CheckCircle className="h-4 w-4 text-green-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">{stats.compliant}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Monitored</CardTitle>
+            <Clock className="h-4 w-4 text-purple-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-purple-600">{stats.monitored}</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filters */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Filters</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+              <Input
+                placeholder="Search NSGs..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            
+            <select
+              value={riskFilter}
+              onChange={(e) => setRiskFilter(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">All Risk Levels</option>
+              <option value="low">Low Risk</option>
+              <option value="medium">Medium Risk</option>
+              <option value="high">High Risk</option>
+              <option value="critical">Critical Risk</option>
+            </select>
+
+            <select
+              value={complianceFilter}
+              onChange={(e) => setComplianceFilter(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">All Compliance</option>
+              <option value="compliant">Compliant (≥80%)</option>
+              <option value="non-compliant">Non-Compliant (&lt;80%)</option>
+            </select>
+
+            <Button variant="outline" onClick={() => {
+              setSearchTerm('')
+              setRiskFilter('all')
+              setComplianceFilter('all')
+            }}>
+              Clear Filters
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* NSGs Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle>NSGs</CardTitle>
+          <CardDescription>
+            {filteredNSGs.length} NSGs found
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex items-center justify-center h-64">
+              <LoadingSpinner size="lg" />
+            </div>
+          ) : (
+            <DataTable
+              columns={columns}
+              data={filteredNSGs}
+              onRowClick={(row) => navigate(`/nsgs/${row.id}`)}
+            />
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Create NSG Modal */}
+      {showCreateForm && (
+        <NSGForm
+          onClose={() => setShowCreateForm(false)}
+          onSuccess={() => {
+            setShowCreateForm(false)
+            refetch()
+          }}
+        />
+      )}
+    </div>
+  )
+}

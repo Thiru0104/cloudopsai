@@ -1,0 +1,6 @@
+Rule Name,Priority,Direction,Access,Protocol,Source,Destination,Description
+AllowHTTP,100,Inbound,Allow,TCP,*,*:80,Allow HTTP traffic from internet
+AllowHTTPS,110,Inbound,Allow,TCP,*,*:443,Allow HTTPS traffic from internet
+AllowSSH,120,Inbound,Allow,TCP,10.0.0.0/8,*:22,Allow SSH from internal network
+DenyAll,4000,Inbound,Deny,*,*,*,Deny all other inbound traffic
+AllowOutbound,100,Outbound,Allow,*,*,*,Allow all outbound traffic

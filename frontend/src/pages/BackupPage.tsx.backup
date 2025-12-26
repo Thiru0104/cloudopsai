@@ -1,0 +1,1841 @@
+import React, { useState, useEffect } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { toast } from 'react-hot-toast';
+import { ChevronLeft, ChevronRight, Download, Calendar, Shield, Database, Clock, Plus, FileText, FileSpreadsheet, RefreshCw, Check, Upload, RotateCcw, Edit, Eye } from 'lucide-react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { Label } from '../components/ui/label';
+import FilterComponent from '../components/FilterComponent';
+
+interface StorageAccount {
+  id: string;
+  name: string;
+  resource_group: string;
+  location: string;
+}
+
+interface Container {
+  name: string;
+  storage_account: string;
+}
+
+interface NSG {
+  id: string;
+  azure_id: string;
+  name: string;
+  resource_group: string;
+  location: string;
+  subscription_id: string;
+}
+
+interface ASG {
+  id: string;
+  azure_id: string;
+  name: string;
+  resource_group: string;
+  location: string;
+  subscription_id: string;
+}
+
+interface BackupStatus {
+  id: string;
+  name: string;
+  status: 'scheduled' | 'running' | 'completed' | 'failed';
+  nextRun: string;
+  lastRun: string;
+  type: 'NSG' | 'ASG';
+  frequency: string;
+}
+
+interface BackupFile {
+  id: string;
+  name: string;
+  created_at: string;
+  size: number;
+  type: 'NSG' | 'ASG';
+  storage_account: string;
+  container: string;
+}
+
+interface RestorePreview {
+  nsgs: NSG[];
+  asgs: ASG[];
+  metadata: {
+    backup_id: string;
+    created_at: string;
+    resource_type: string;
+  };
+}
+
+const BackupPage: React.FC = () => {
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
+  const [selectedTime, setSelectedTime] = useState<string>('09:00');
+  const [backupType, setBackupType] = useState<'single' | 'bulk'>('single');
+  const [resourceType, setResourceType] = useState<'nsg' | 'asg' | 'both'>('nsg');
+  const [selectedNSGs, setSelectedNSGs] = useState<string[]>([]);
+  const [selectedASGs, setSelectedASGs] = useState<string[]>([]);
+  const [createNewStorage, setCreateNewStorage] = useState<boolean>(false);
+  const [showCalendar, setShowCalendar] = useState<boolean>(false);
+  const [backupStatuses, setBackupStatuses] = useState<BackupStatus[]>([
+    {
+      id: '1',
+      name: 'web-nsg-001',
+      status: 'completed',
+      nextRun: '2024-08-23T09:00:00Z',
+      lastRun: '2024-08-22T09:00:00Z',
+      type: 'NSG',
+      frequency: 'Daily'
+    },
+    {
+      id: '2',
+      name: 'db-asg-001',
+      status: 'scheduled',
+      nextRun: '2024-08-23T12:00:00Z',
+      lastRun: '2024-08-21T12:00:00Z',
+      type: 'ASG',
+      frequency: 'Weekly'
+    }
+  ]);
+  const [filters, setFilters] = useState({
+    selectedSubscription: '',
+    selectedResourceGroup: '',
+    selectedLocation: '',
+    selectedNSG: ''
+  });
+  
+  // Restore-related state
+  const [activeTab, setActiveTab] = useState<'backup' | 'restore'>('backup');
+  const [restoreSource, setRestoreSource] = useState<'storage' | 'csv'>('storage');
+  const [selectedBackupFile, setSelectedBackupFile] = useState<string>('');
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [restorePreview, setRestorePreview] = useState<RestorePreview | null>(null);
+  const [showRestorePreview, setShowRestorePreview] = useState<boolean>(false);
+  const [editableRules, setEditableRules] = useState<any[]>([]);
+
+  const exportMutation = useMutation({
+    mutationFn: async (format: 'csv' | 'excel') => {
+      const exportData = {
+        ...filters,
+        backupType,
+        resourceType,
+        selectedNSGs: (resourceType === 'nsg' || resourceType === 'both') && backupType === 'bulk' ? selectedNSGs : (resourceType === 'nsg' && backupType === 'single') ? [filters.selectedNSG] : [],
+        selectedASGs: (resourceType === 'asg' || resourceType === 'both') ? selectedASGs : [],
+        format: format === 'csv' ? 'enhanced_csv' : format,
+        separateColumns: format === 'csv' ? true : false,
+        includeRuleDetails: format === 'csv' ? true : false,
+        includeASGMapping: format === 'csv' ? true : false
+      };
+      
+      const response = await fetch('/api/v1/backup/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(exportData)
+      });
+      
+      if (!response.ok) throw new Error('Failed to export backup configuration');
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `backup-config.${format === 'excel' ? 'xlsx' : 'csv'}`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      return { success: true };
+    },
+    onSuccess: (_, format) => {
+      toast.success(`Configuration exported to ${format.toUpperCase()} successfully!`);
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to export configuration');
+    }
+  });
+  const [formData, setFormData] = useState({
+    frequency: 'daily',
+    storageAccount: '',
+    container: '',
+    newStorageAccountName: '',
+    newContainerName: '',
+    storageType: 'Standard_LRS',
+    newStorageResourceGroup: '',
+    newStorageLocation: ''
+  });
+
+  // API Queries
+  const { data: storageAccounts = [], isLoading: storageAccountsLoading, refetch: refetchStorageAccounts } = useQuery({
+    queryKey: ['storageAccounts', filters.selectedSubscription],
+    queryFn: async () => {
+      if (!filters.selectedSubscription) return [];
+      const response = await fetch(`/api/v1/storage-accounts?subscription_id=${filters.selectedSubscription}`);
+      if (!response.ok) throw new Error('Failed to fetch storage accounts');
+      const data = await response.json();
+      return data.storage_accounts || [];
+    },
+    enabled: !!filters.selectedSubscription
+  });
+
+  const { data: asgs = [], isLoading: asgsLoading, refetch: refetchASGs } = useQuery({
+    queryKey: ['asgs', filters.selectedSubscription, filters.selectedResourceGroup],
+    queryFn: async () => {
+      if (!filters.selectedSubscription) return [];
+      let url = `/api/v1/asgs?subscription_id=${filters.selectedSubscription}`;
+      if (filters.selectedResourceGroup) {
+        url += `&resource_group=${filters.selectedResourceGroup}`;
+      }
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Failed to fetch ASGs');
+      const data = await response.json();
+      return data.asgs || [];
+    },
+    enabled: !!filters.selectedSubscription && (resourceType === 'asg' || resourceType === 'both')
+  });
+
+  const { data: containers = [], isLoading: containersLoading, refetch: refetchContainers } = useQuery({
+    queryKey: ['containers', formData.storageAccount],
+    queryFn: async () => {
+      if (!formData.storageAccount) return [];
+      const response = await fetch(`/api/v1/containers?storage_account=${formData.storageAccount}`);
+      if (!response.ok) throw new Error('Failed to fetch containers');
+      const data = await response.json();
+      return data.containers || [];
+    },
+    enabled: !!formData.storageAccount && !createNewStorage
+  });
+
+  const { data: nsgs = [], isLoading: nsgsLoading, refetch: refetchNSGs } = useQuery({
+    queryKey: ['nsgs', filters.selectedSubscription, filters.selectedResourceGroup],
+    queryFn: async () => {
+      if (!filters.selectedSubscription) return [];
+      let url = `/api/v1/nsgs?subscription_id=${filters.selectedSubscription}`;
+      if (filters.selectedResourceGroup) {
+        url += `&resource_group=${filters.selectedResourceGroup}`;
+      }
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Failed to fetch NSGs');
+      const data = await response.json();
+      return data.nsgs || [];
+    },
+    enabled: !!filters.selectedSubscription
+  });
+
+  const { data: resourceGroups = [], isLoading: resourceGroupsLoading } = useQuery({
+    queryKey: ['resourceGroups', filters.selectedSubscription],
+    queryFn: async () => {
+      if (!filters.selectedSubscription) return [];
+      const response = await fetch(`/api/v1/resource-groups?subscription_id=${filters.selectedSubscription}`);
+      if (!response.ok) throw new Error('Failed to fetch resource groups');
+      const data = await response.json();
+      return data.resource_groups || [];
+    },
+    enabled: !!filters.selectedSubscription
+  });
+
+  const { data: locations = [], isLoading: locationsLoading } = useQuery({
+    queryKey: ['locations', filters.selectedSubscription],
+    queryFn: async () => {
+      if (!filters.selectedSubscription) return [];
+      const response = await fetch(`/api/v1/locations?subscription_id=${filters.selectedSubscription}`);
+      if (!response.ok) throw new Error('Failed to fetch locations');
+      const data = await response.json();
+      return data.locations || [];
+    },
+    enabled: !!filters.selectedSubscription
+  });
+
+  // Backup files query for restore functionality
+  const { data: backupFiles = [], isLoading: backupFilesLoading, refetch: refetchBackupFiles } = useQuery({
+    queryKey: ['backupFiles', formData.storageAccount, formData.container],
+    queryFn: async () => {
+      if (!formData.storageAccount || !formData.container) return [];
+      const response = await fetch(`/api/v1/backup/files?storage_account=${formData.storageAccount}&container=${formData.container}`);
+      if (!response.ok) throw new Error('Failed to fetch backup files');
+      const data = await response.json();
+      return data.backup_files || [];
+    },
+    enabled: !!formData.storageAccount && !!formData.container && activeTab === 'restore'
+  });
+
+  const backupMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const backupData = {
+        ...data,
+        ...filters,
+        selectedTime,
+        backupType,
+        resourceType,
+        selectedNSGs: (resourceType === 'nsg' || resourceType === 'both') && backupType === 'bulk' ? selectedNSGs : (resourceType === 'nsg' && backupType === 'single') ? [filters.selectedNSG] : [],
+        selectedASGs: (resourceType === 'asg' || resourceType === 'both') ? selectedASGs : [],
+        createNewStorage
+      };
+      
+      const response = await fetch('/api/v1/backup/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(backupData)
+      });
+      
+      if (!response.ok) throw new Error('Failed to create backup configuration');
+      return await response.json();
+    },
+    onSuccess: () => {
+      toast.success('Backup configuration created successfully!');
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to create backup configuration');
+    }
+  });
+
+
+
+
+
+  const createStorageMutation = useMutation({
+    mutationFn: async (data: { name: string; resourceGroup: string; location: string }) => {
+      const response = await fetch('/api/v1/storage-accounts/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...data,
+          subscription_id: filters.selectedSubscription
+        })
+      });
+      
+      if (!response.ok) throw new Error('Failed to create storage account');
+      return await response.json();
+    },
+    onSuccess: (data) => {
+      toast.success('Storage account created successfully!');
+      setFormData(prev => ({ ...prev, storageAccount: data.name }));
+      refetchStorageAccounts();
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to create storage account');
+    }
+  });
+
+  // Restore mutations
+  const restorePreviewMutation = useMutation({
+    mutationFn: async (data: { source: 'storage' | 'csv'; fileId?: string; file?: File }) => {
+      if (data.source === 'storage' && data.fileId) {
+        const response = await fetch(`/api/v1/backup/preview/${data.fileId}`);
+        if (!response.ok) throw new Error('Failed to fetch backup preview');
+        return await response.json();
+      } else if (data.source === 'csv' && data.file) {
+        const formData = new FormData();
+        formData.append('file', data.file);
+        const response = await fetch('/api/v1/backup/preview-csv', {
+          method: 'POST',
+          body: formData
+        });
+        if (!response.ok) throw new Error('Failed to parse CSV file');
+        return await response.json();
+      }
+      throw new Error('Invalid restore source');
+    },
+    onSuccess: (data) => {
+      setRestorePreview(data);
+      setEditableRules(data.nsgs.flatMap((nsg: any) => [...nsg.inbound_rules, ...nsg.outbound_rules]));
+      setShowRestorePreview(true);
+      toast.success('Backup preview loaded successfully!');
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to load backup preview');
+    }
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: async (data: { preview: RestorePreview; editedRules: any[] }) => {
+      const response = await fetch('/api/v1/backup/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...data,
+          subscription_id: filters.selectedSubscription,
+          resource_group: filters.selectedResourceGroup
+        })
+      });
+      
+      if (!response.ok) throw new Error('Failed to restore backup');
+      return await response.json();
+    },
+    onSuccess: () => {
+      toast.success('Backup restored successfully!');
+      setShowRestorePreview(false);
+      setRestorePreview(null);
+      setUploadedFile(null);
+      setSelectedBackupFile('');
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to restore backup');
+    }
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!filters.selectedSubscription) {
+      toast.error('Please select a subscription');
+      return;
+    }
+    
+    // Validation for resource selection
+    if (backupType === 'single') {
+      if (resourceType === 'nsg' && !filters.selectedNSG) {
+        toast.error('Please select an NSG for single backup');
+        return;
+      }
+      // Note: Single ASG selection would need FilterComponent updates
+    }
+    
+    if (backupType === 'bulk') {
+      const hasNSGs = (resourceType === 'nsg' || resourceType === 'both') && selectedNSGs.length > 0;
+      const hasASGs = (resourceType === 'asg' || resourceType === 'both') && selectedASGs.length > 0;
+      
+      if (resourceType === 'nsg' && selectedNSGs.length === 0) {
+        toast.error('Please select at least one NSG for bulk backup');
+        return;
+      }
+      if (resourceType === 'asg' && selectedASGs.length === 0) {
+        toast.error('Please select at least one ASG for bulk backup');
+        return;
+      }
+      if (resourceType === 'both' && !hasNSGs && !hasASGs) {
+        toast.error('Please select at least one NSG or ASG for bulk backup');
+        return;
+      }
+    }
+    
+    if (!createNewStorage && !formData.storageAccount) {
+      toast.error('Please select a storage account');
+      return;
+    }
+    
+    if (!createNewStorage && !formData.container) {
+      toast.error('Please select a container');
+      return;
+    }
+    
+    if (createNewStorage && (!formData.newStorageAccountName || !formData.newContainerName)) {
+      toast.error('Please provide names for new storage account and container');
+      return;
+    }
+    
+    backupMutation.mutate({ ...formData, selectedDate, selectedTime });
+  };
+
+  const handleFilterChange = (newFilters: typeof filters) => {
+    setFilters(newFilters);
+    // Reset NSG selections when filters change
+    setSelectedNSGs([]);
+  };
+
+  const handleExport = (format: 'csv' | 'excel') => {
+    if (!filters.selectedSubscription) {
+      toast.error('Please select a subscription first');
+      return;
+    }
+    exportMutation.mutate(format);
+  };
+
+  // Restore handlers
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      if (file.type !== 'text/csv' && !file.name.endsWith('.csv')) {
+        toast.error('Please upload a CSV file');
+        return;
+      }
+      setUploadedFile(file);
+      toast.success('File uploaded successfully!');
+    }
+  };
+
+  const handlePreviewRestore = () => {
+    if (restoreSource === 'storage') {
+      if (!selectedBackupFile) {
+        toast.error('Please select a backup file');
+        return;
+      }
+      restorePreviewMutation.mutate({ source: 'storage', fileId: selectedBackupFile });
+    } else {
+      if (!uploadedFile) {
+        toast.error('Please upload a CSV file');
+        return;
+      }
+      restorePreviewMutation.mutate({ source: 'csv', file: uploadedFile });
+    }
+  };
+
+  const handleRestoreConfirm = () => {
+    if (!restorePreview) {
+      toast.error('No restore preview available');
+      return;
+    }
+    restoreMutation.mutate({ preview: restorePreview, editedRules });
+  };
+
+  const handleRuleEdit = (ruleIndex: number, field: string, value: string) => {
+    setEditableRules(prev => {
+      const updated = [...prev];
+      updated[ruleIndex] = { ...updated[ruleIndex], [field]: value };
+      return updated;
+    });
+  };
+
+
+
+  const handleInputChange = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleSaveStorageConfig = async () => {
+    try {
+      if (!filters.selectedSubscription) {
+        toast.error('Please select a subscription first');
+        return;
+      }
+
+      const storageConfig = {
+        subscription_id: filters.selectedSubscription,
+        ...(createNewStorage ? {
+          // New storage configuration
+          storage_account_name: formData.newStorageAccountName,
+          container_name: formData.newContainerName,
+          resource_group: formData.newStorageResourceGroup || filters.selectedResourceGroup,
+          location: formData.newStorageLocation || filters.selectedLocation,
+          storage_type: formData.storageType,
+          create_new: true
+        } : {
+          // Existing storage configuration
+          storage_account_name: formData.storageAccount,
+          container_name: formData.container,
+          create_new: false
+        })
+      };
+
+      const response = await fetch('/api/v1/backup/storage-config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(storageConfig),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to save storage configuration');
+      }
+
+      const result = await response.json();
+      toast.success('Storage configuration saved successfully!');
+      
+      // If we created new storage, refresh the storage accounts list
+      if (createNewStorage && result.storage_account_created) {
+        refetchStorageAccounts();
+      }
+    } catch (error: any) {
+      console.error('Error saving storage configuration:', error);
+      toast.error(error.message || 'Failed to save storage configuration');
+    }
+  };
+
+  const handleNSGSelection = (nsgId: string, checked: boolean) => {
+    if (checked) {
+      setSelectedNSGs(prev => [...prev, nsgId]);
+    } else {
+      setSelectedNSGs(prev => prev.filter(id => id !== nsgId));
+    }
+  };
+
+  const handleSelectAllNSGs = (checked: boolean) => {
+    if (checked) {
+      setSelectedNSGs(nsgs.map((nsg: NSG) => nsg.id));
+    } else {
+      setSelectedNSGs([]);
+    }
+  };
+
+  const handleASGSelection = (asgId: string, checked: boolean) => {
+    if (checked) {
+      setSelectedASGs(prev => [...prev, asgId]);
+    } else {
+      setSelectedASGs(prev => prev.filter(id => id !== asgId));
+    }
+  };
+
+  const handleSelectAllASGs = (checked: boolean) => {
+    if (checked) {
+      setSelectedASGs(asgs.map((asg: ASG) => asg.id));
+    } else {
+      setSelectedASGs([]);
+    }
+  };
+
+  const handleCreateNewStorage = async () => {
+    if (!formData.newStorageAccountName || !(formData.newStorageResourceGroup || filters.selectedResourceGroup) || !(formData.newStorageLocation || filters.selectedLocation)) {
+      toast.error('Please provide storage account name, resource group, and location');
+      return;
+    }
+    
+    createStorageMutation.mutate({
+      name: formData.newStorageAccountName,
+      resourceGroup: formData.newStorageResourceGroup || filters.selectedResourceGroup,
+      location: formData.newStorageLocation || filters.selectedLocation
+    });
+  };
+
+  // Generate time options
+  const generateTimeOptions = () => {
+    const times = [];
+    for (let hour = 0; hour < 24; hour++) {
+      for (let minute = 0; minute < 60; minute += 30) {
+        const timeString = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+        times.push(timeString);
+      }
+    }
+    return times;
+  };
+
+  // Reset form when switching between single and bulk or resource type
+  useEffect(() => {
+    setSelectedNSGs([]);
+    setSelectedASGs([]);
+    setFilters(prev => ({ ...prev, selectedNSG: '' }));
+  }, [backupType, resourceType]);
+
+  // Reset containers when storage account changes
+  useEffect(() => {
+    setFormData(prev => ({ ...prev, container: '' }));
+  }, [formData.storageAccount]);
+
+  // Calendar helpers
+  const getDaysInMonth = (date: Date) => {
+    return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  };
+
+  const getFirstDayOfMonth = (date: Date) => {
+    return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+  };
+
+  const formatDate = (date: Date) => {
+    return date.toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'long' 
+    });
+  };
+
+  const isSameDay = (date1: Date, date2: Date) => {
+    return date1.toDateString() === date2.toDateString();
+  };
+
+  const renderCalendar = () => {
+    const daysInMonth = getDaysInMonth(currentMonth);
+    const firstDay = getFirstDayOfMonth(currentMonth);
+    const days = [];
+
+    // Add empty cells for days before the first day of the month
+    for (let i = 0; i < firstDay; i++) {
+      days.push(<div key={`empty-${i}`} className="p-2"></div>);
+    }
+
+    // Add cells for each day of the month
+    for (let day = 1; day <= daysInMonth; day++) {
+      const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
+      const isSelected = isSameDay(date, selectedDate);
+      
+      days.push(
+        <button
+          key={day}
+          onClick={() => setSelectedDate(date)}
+          className={`p-2 w-full text-center rounded-md hover:bg-gray-100 ${
+            isSelected ? 'bg-blue-500 text-white hover:bg-blue-600' : ''
+          }`}
+        >
+          {day}
+        </button>
+      );
+    }
+
+    return days;
+  };
+
+  const nextMonth = () => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
+  };
+
+  const prevMonth = () => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 p-6">
+      <div className="flex gap-6 max-w-7xl mx-auto">
+        {/* Main Content */}
+        <div className="flex-1">
+          {/* Header */}
+      <div className="mb-8 animate-fade-in">
+        <div className="flex items-center space-x-3 mb-4">
+          <div className="p-3 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-xl shadow-lg">
+            <Database className="h-6 w-6 text-white" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold gradient-text">Backup & Restore Management</h1>
+            <p className="text-slate-600 mt-1">
+              Configure automated backups and restore configurations for your network security groups and application security groups.
+            </p>
+          </div>
+        </div>
+        
+        {/* Tab Navigation */}
+        <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg w-fit">
+          <button
+            onClick={() => setActiveTab('backup')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              activeTab === 'backup'
+                ? 'bg-white text-blue-600 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <div className="flex items-center space-x-2">
+              <Shield className="h-4 w-4" />
+              <span>Backup</span>
+            </div>
+          </button>
+          <button
+            onClick={() => setActiveTab('restore')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              activeTab === 'restore'
+                ? 'bg-white text-green-600 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <div className="flex items-center space-x-2">
+              <RotateCcw className="h-4 w-4" />
+              <span>Restore</span>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {activeTab === 'backup' ? (
+        <form onSubmit={handleSubmit} className="space-y-8">
+        {/* Backup Scope */}
+        <Card className="animate-slide-up">
+          <CardHeader>
+            <div className="flex items-center space-x-2">
+              <Shield className="h-4 w-4 text-blue-600" />
+              <CardTitle>Backup Scope</CardTitle>
+            </div>
+            <CardDescription>
+              Configure the scope and resources for your backup operation.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <FilterComponent
+              selectedSubscription={filters.selectedSubscription}
+              selectedResourceGroup={filters.selectedResourceGroup}
+              selectedLocation={filters.selectedLocation}
+              selectedNSG={filters.selectedNSG}
+              onFilterChange={handleFilterChange}
+              showNSGSelector={backupType === 'single'}
+            />
+            
+            {/* Resource Type Selection */}
+            <div className="space-y-4">
+              <Label className="text-sm font-medium text-slate-700">Resource Type</Label>
+              <div className="flex space-x-4">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="radio"
+                    id="nsg"
+                    name="resourceType"
+                    value="nsg"
+                    checked={resourceType === 'nsg'}
+                    onChange={(e) => setResourceType(e.target.value as 'nsg' | 'asg' | 'both')}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <Label htmlFor="nsg" className="text-sm">NSG Only</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="radio"
+                    id="asg"
+                    name="resourceType"
+                    value="asg"
+                    checked={resourceType === 'asg'}
+                    onChange={(e) => setResourceType(e.target.value as 'nsg' | 'asg' | 'both')}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <Label htmlFor="asg" className="text-sm">ASG Only</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="radio"
+                    id="both"
+                    name="resourceType"
+                    value="both"
+                    checked={resourceType === 'both'}
+                    onChange={(e) => setResourceType(e.target.value as 'nsg' | 'asg' | 'both')}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <Label htmlFor="both" className="text-sm">Both NSG & ASG</Label>
+                </div>
+              </div>
+            </div>
+
+            {/* Backup Type Selection */}
+            <div className="space-y-4">
+              <Label className="text-sm font-medium text-slate-700">Backup Type</Label>
+              <div className="flex space-x-4">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="radio"
+                    id="single"
+                    name="backupType"
+                    value="single"
+                    checked={backupType === 'single'}
+                    onChange={(e) => setBackupType(e.target.value as 'single' | 'bulk')}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <Label htmlFor="single" className="text-sm">Single Resource</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="radio"
+                    id="bulk"
+                    name="backupType"
+                    value="bulk"
+                    checked={backupType === 'bulk'}
+                    onChange={(e) => setBackupType(e.target.value as 'single' | 'bulk')}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <Label htmlFor="bulk" className="text-sm">Bulk Resources</Label>
+                </div>
+              </div>
+            </div>
+            
+            {/* Bulk Resource Selection */}
+            {backupType === 'bulk' && (
+              <div className="space-y-6">
+                {/* NSG Selection */}
+                {(resourceType === 'nsg' || resourceType === 'both') && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-medium text-slate-700">Select NSGs for Backup</Label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => refetchNSGs()}
+                        disabled={nsgsLoading}
+                      >
+                        <RefreshCw className={`h-4 w-4 mr-2 ${nsgsLoading ? 'animate-spin' : ''}`} />
+                        Refresh NSGs
+                      </Button>
+                    </div>
+                
+                {nsgs.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center space-x-2 p-2 bg-gray-50 rounded">
+                      <input
+                        type="checkbox"
+                        id="select-all"
+                        checked={selectedNSGs.length === nsgs.length && nsgs.length > 0}
+                        onChange={(e) => handleSelectAllNSGs(e.target.checked)}
+                        className="w-4 h-4 text-blue-600 rounded"
+                      />
+                      <Label htmlFor="select-all" className="text-sm font-medium">
+                        Select All ({nsgs.length} NSGs)
+                      </Label>
+                    </div>
+                    
+                    <div className="max-h-60 overflow-y-auto space-y-2">
+                      {nsgs.map((nsg: NSG) => (
+                        <div key={nsg.id} className="flex items-center space-x-2 p-2 border rounded">
+                          <input
+                            type="checkbox"
+                            id={nsg.id}
+                            checked={selectedNSGs.includes(nsg.id)}
+                            onChange={(e) => handleNSGSelection(nsg.id, e.target.checked)}
+                            className="w-4 h-4 text-blue-600 rounded"
+                          />
+                          <div className="flex-1">
+                            <Label htmlFor={nsg.id} className="text-sm font-medium">{nsg.name}</Label>
+                            <p className="text-xs text-gray-500">
+                              {nsg.resource_group} • {nsg.location}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    <p className="text-sm text-gray-600">
+                      {selectedNSGs.length} of {nsgs.length} NSGs selected
+                    </p>
+                  </div>
+                )}
+                
+                {nsgsLoading && (
+                  <div className="flex items-center justify-center py-8">
+                    <RefreshCw className="h-6 w-6 animate-spin text-blue-600" />
+                    <span className="ml-2 text-sm text-gray-600">Loading NSGs...</span>
+                  </div>
+                )}
+                
+                {!nsgsLoading && nsgs.length === 0 && filters.selectedSubscription && (
+                  <p className="text-sm text-gray-500 text-center py-4">
+                    No NSGs found in the selected scope
+                  </p>
+                )}
+                  </div>
+                )}
+
+                {/* ASG Selection */}
+                {(resourceType === 'asg' || resourceType === 'both') && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-medium text-slate-700">Select ASGs for Backup</Label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => refetchASGs()}
+                        disabled={asgsLoading}
+                      >
+                        <RefreshCw className={`h-4 w-4 mr-2 ${asgsLoading ? 'animate-spin' : ''}`} />
+                        Refresh ASGs
+                      </Button>
+                    </div>
+                    
+                    {asgs.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center space-x-2 p-2 bg-gray-50 rounded">
+                          <input
+                            type="checkbox"
+                            id="select-all-asgs"
+                            checked={selectedASGs.length === asgs.length && asgs.length > 0}
+                            onChange={(e) => handleSelectAllASGs(e.target.checked)}
+                            className="w-4 h-4 text-blue-600 rounded"
+                          />
+                          <Label htmlFor="select-all-asgs" className="text-sm font-medium">
+                            Select All ({asgs.length} ASGs)
+                          </Label>
+                        </div>
+                        
+                        <div className="max-h-60 overflow-y-auto space-y-2">
+                          {asgs.map((asg: ASG) => (
+                            <div key={asg.id} className="flex items-center space-x-2 p-2 border rounded">
+                              <input
+                                type="checkbox"
+                                id={asg.id}
+                                checked={selectedASGs.includes(asg.id)}
+                                onChange={(e) => handleASGSelection(asg.id, e.target.checked)}
+                                className="w-4 h-4 text-blue-600 rounded"
+                              />
+                              <div className="flex-1">
+                                <Label htmlFor={asg.id} className="text-sm font-medium">{asg.name}</Label>
+                                <p className="text-xs text-gray-500">
+                                  {asg.resource_group} • {asg.location}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        
+                        <p className="text-sm text-gray-600">
+                          {selectedASGs.length} of {asgs.length} ASGs selected
+                        </p>
+                      </div>
+                    )}
+                    
+                    {asgsLoading && (
+                      <div className="flex items-center justify-center py-8">
+                        <RefreshCw className="h-6 w-6 animate-spin text-blue-600" />
+                        <span className="ml-2 text-sm text-gray-600">Loading ASGs...</span>
+                      </div>
+                    )}
+                    
+                    {!asgsLoading && asgs.length === 0 && filters.selectedSubscription && (
+                      <p className="text-sm text-gray-500 text-center py-4">
+                        No ASGs found in the selected scope
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="animate-slide-up">
+          <CardHeader>
+            <div className="flex items-center space-x-2">
+              <Database className="h-4 w-4 text-blue-600" />
+              <CardTitle>Storage Settings</CardTitle>
+            </div>
+            <CardDescription>
+              Configure where your backup data will be stored.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Storage Option Toggle */}
+            <div className="space-y-4">
+              <Label className="text-sm font-medium text-slate-700">Storage Option</Label>
+              <div className="flex space-x-4">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="radio"
+                    id="existing-storage"
+                    name="storageOption"
+                    checked={!createNewStorage}
+                    onChange={() => setCreateNewStorage(false)}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <Label htmlFor="existing-storage" className="text-sm">Use Existing Storage</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="radio"
+                    id="new-storage"
+                    name="storageOption"
+                    checked={createNewStorage}
+                    onChange={() => setCreateNewStorage(true)}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <Label htmlFor="new-storage" className="text-sm">Create New Storage</Label>
+                </div>
+              </div>
+            </div>
+            
+            {/* Existing Storage Selection */}
+            {!createNewStorage && (
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <Label className="text-sm font-medium text-slate-700">Storage Account</Label>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => refetchStorageAccounts()}
+                      disabled={storageAccountsLoading}
+                    >
+                      <RefreshCw className={`h-4 w-4 ${storageAccountsLoading ? 'animate-spin' : ''}`} />
+                    </Button>
+                  </div>
+                  <Select 
+                    value={formData.storageAccount} 
+                    onValueChange={(value) => handleInputChange('storageAccount', value)}
+                    disabled={!filters.selectedSubscription}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={filters.selectedSubscription ? "Select storage account" : "Select subscription first"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {storageAccounts.map((account: StorageAccount) => (
+                        <SelectItem key={account.id} value={account.name}>
+                          <div className="flex flex-col">
+                            <span>{account.name}</span>
+                            <span className="text-xs text-gray-500">{account.resource_group} • {account.location}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {storageAccountsLoading && (
+                    <p className="text-xs text-gray-500 mt-1">Loading storage accounts...</p>
+                  )}
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <Label className="text-sm font-medium text-slate-700">Container</Label>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => refetchContainers()}
+                      disabled={containersLoading || !formData.storageAccount}
+                    >
+                      <RefreshCw className={`h-4 w-4 ${containersLoading ? 'animate-spin' : ''}`} />
+                    </Button>
+                  </div>
+                  <Select 
+                    value={formData.container} 
+                    onValueChange={(value) => handleInputChange('container', value)}
+                    disabled={!formData.storageAccount}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={formData.storageAccount ? "Select container" : "Select storage account first"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {containers.map((container: Container) => (
+                        <SelectItem key={container.name} value={container.name}>
+                          {container.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {containersLoading && (
+                    <p className="text-xs text-gray-500 mt-1">Loading containers...</p>
+                  )}
+                  {!containersLoading && containers.length === 0 && formData.storageAccount && (
+                    <p className="text-xs text-gray-500 mt-1">No containers found</p>
+                  )}
+                </div>
+              </div>
+            )}
+            
+            {/* New Storage Creation */}
+            {createNewStorage && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <div>
+                    <Label className="text-sm font-medium text-slate-700 mb-2">Storage Account Name</Label>
+                    <Input
+                      type="text"
+                      value={formData.newStorageAccountName}
+                      onChange={(e) => handleInputChange('newStorageAccountName', e.target.value)}
+                      placeholder="Enter storage account name"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-sm font-medium text-slate-700 mb-2">Container Name</Label>
+                    <Input
+                      type="text"
+                      value={formData.newContainerName}
+                      onChange={(e) => handleInputChange('newContainerName', e.target.value)}
+                      placeholder="Enter container name"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-sm font-medium text-slate-700 mb-2">Storage Type</Label>
+                    <Select 
+                      value={formData.storageType || 'Standard_LRS'} 
+                      onValueChange={(value) => handleInputChange('storageType', value)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select storage type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem key="Standard_LRS" value="Standard_LRS">Standard LRS (Locally Redundant)</SelectItem>
+                  <SelectItem key="Standard_GRS" value="Standard_GRS">Standard GRS (Geo Redundant)</SelectItem>
+                  <SelectItem key="Standard_ZRS" value="Standard_ZRS">Standard ZRS (Zone Redundant)</SelectItem>
+                  <SelectItem key="Premium_LRS" value="Premium_LRS">Premium LRS (High Performance)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label className="text-sm font-medium text-slate-700 mb-2">Resource Group</Label>
+                    <Select 
+                      value={formData.newStorageResourceGroup || filters.selectedResourceGroup} 
+                      onValueChange={(value) => handleInputChange('newStorageResourceGroup', value)}
+                      disabled={!filters.selectedSubscription}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={filters.selectedSubscription ? "Select resource group" : "Select subscription first"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {resourceGroups.map((rg: any) => (
+                          <SelectItem key={rg.name} value={rg.name}>
+                            {rg.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-medium text-slate-700 mb-2">Region</Label>
+                    <Select 
+                      value={formData.newStorageLocation || filters.selectedLocation} 
+                      onValueChange={(value) => handleInputChange('newStorageLocation', value)}
+                      disabled={!filters.selectedSubscription}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={filters.selectedSubscription ? "Select region" : "Select subscription first"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {locations.map((loc: any) => (
+                          <SelectItem key={loc.name} value={loc.name}>
+                            {loc.displayName || loc.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                
+                <div className="p-4 bg-blue-50 rounded-lg">
+                  <div className="flex items-start space-x-2">
+                    <div className="flex-shrink-0">
+                      <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center">
+                        <span className="text-white text-xs font-bold">i</span>
+                      </div>
+                    </div>
+                    <div className="text-sm text-blue-800">
+                      <p className="font-medium mb-1">New Storage Account Configuration:</p>
+                      <ul className="text-xs space-y-1">
+                        <li>• Name: {formData.newStorageAccountName || 'Not specified'}</li>
+                        <li>• Resource Group: {formData.newStorageResourceGroup || filters.selectedResourceGroup || 'Not selected'}</li>
+                        <li>• Region: {formData.newStorageLocation || filters.selectedLocation || 'Not selected'}</li>
+                        <li>• Type: {formData.storageType || 'Standard_LRS'}</li>
+                        <li>• Container: {formData.newContainerName || 'Not specified'}</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex space-x-2">
+                  <Button 
+                    variant="outline" 
+                    type="button"
+                    onClick={handleSaveStorageConfig}
+                    disabled={!formData.newStorageAccountName || !formData.newContainerName || !(formData.newStorageResourceGroup || filters.selectedResourceGroup)}
+                  >
+                    <Check className="h-4 w-4 mr-2" />
+                    Save Storage Configuration
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    type="button"
+                    onClick={handleCreateNewStorage}
+                    disabled={createStorageMutation.isPending || !formData.newStorageAccountName || !(formData.newStorageResourceGroup || filters.selectedResourceGroup)}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    {createStorageMutation.isPending ? 'Creating...' : 'Create Storage Account Now'}
+                  </Button>
+                </div>
+              </div>
+            )}
+            
+            {/* Save Storage Configuration for Existing Storage */}
+            {!createNewStorage && (
+              <div className="flex justify-end">
+                <Button 
+                  variant="outline" 
+                  type="button"
+                  onClick={handleSaveStorageConfig}
+                  disabled={!formData.storageAccount || !formData.container}
+                >
+                  <Check className="h-4 w-4 mr-2" />
+                  Save Storage Configuration
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Backup Schedule */}
+        <Card className="animate-slide-up">
+          <CardHeader>
+            <div className="flex items-center space-x-2">
+              <Clock className="h-4 w-4 text-blue-600" />
+              <CardTitle>Backup Schedule</CardTitle>
+            </div>
+            <CardDescription>
+              Configure when and how often backups should be performed.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div>
+                <Label className="text-sm font-medium text-slate-700 mb-2">Frequency</Label>
+                <Select value={formData.frequency} onValueChange={(value) => handleInputChange('frequency', value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select frequency" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem key="daily" value="daily">Daily</SelectItem>
+                  <SelectItem key="weekly" value="weekly">Weekly</SelectItem>
+                  <SelectItem key="monthly" value="monthly">Monthly</SelectItem>
+                  <SelectItem key="custom" value="custom">Custom</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+
+
+              <div className="relative">
+                <Label className="text-sm font-medium text-slate-700 mb-2">Start Date</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-start text-left font-normal"
+                  onClick={() => setShowCalendar(!showCalendar)}
+                >
+                  <Calendar className="mr-2 h-4 w-4" />
+                  {selectedDate.toLocaleDateString()} at {selectedTime}
+                </Button>
+                
+                {showCalendar && (
+                  <div className="absolute top-full left-0 mt-1 z-50 bg-white border rounded-lg shadow-lg p-4 w-80">
+                    <div className="flex items-center justify-between mb-4">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={prevMonth}
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <h3 className="text-sm font-medium text-slate-900">{formatDate(currentMonth)}</h3>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={nextMonth}
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    
+                    <div className="grid grid-cols-7 gap-1 text-xs text-slate-500 mb-2">
+                      <div className="p-2 text-center">S</div>
+                      <div className="p-2 text-center">M</div>
+                      <div className="p-2 text-center">T</div>
+                      <div className="p-2 text-center">W</div>
+                      <div className="p-2 text-center">T</div>
+                      <div className="p-2 text-center">F</div>
+                      <div className="p-2 text-center">S</div>
+                    </div>
+                    
+                    <div className="grid grid-cols-7 gap-1 mb-4">
+                      {renderCalendar()}
+                    </div>
+                    
+                    <div className="border-t pt-3">
+                      <Label className="text-xs font-medium text-slate-700 mb-2 block">Time</Label>
+                      <Select value={selectedTime} onValueChange={setSelectedTime}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-60">
+                          {generateTimeOptions().map((time) => (
+                            <SelectItem key={time} value={time}>
+                              {time}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    
+                    <div className="flex justify-end mt-4 space-x-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowCalendar(false)}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => setShowCalendar(false)}
+                      >
+                        Done
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Export Configuration */}
+        <Card className="animate-slide-up">
+          <CardHeader>
+            <div className="flex items-center space-x-2">
+              <Download className="h-4 w-4 text-blue-600" />
+              <CardTitle>Export Configuration</CardTitle>
+            </div>
+            <CardDescription>
+              Export your NSG configurations and backup data in CSV or Excel format.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-6">
+              {/* Export Options */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <Button 
+                  variant="outline" 
+                  type="button"
+                  onClick={() => handleExport('csv')}
+                  disabled={exportMutation.isPending || !filters.selectedSubscription}
+                  className="flex items-center justify-center space-x-2 h-12"
+                >
+                  <FileText className="h-5 w-5" />
+                  <div className="flex flex-col items-start">
+                    <span className="font-medium">Export CSV</span>
+                    <span className="text-xs text-gray-500">Data analysis</span>
+                  </div>
+                  {exportMutation.isPending && exportMutation.variables?.format === 'csv' && (
+                    <RefreshCw className="h-4 w-4 animate-spin ml-2" />
+                  )}
+                </Button>
+                
+                <Button 
+                  variant="outline" 
+                  type="button"
+                  onClick={() => handleExport('excel')}
+                  disabled={exportMutation.isPending || !filters.selectedSubscription}
+                  className="flex items-center justify-center space-x-2 h-12"
+                >
+                  <FileSpreadsheet className="h-5 w-5" />
+                  <div className="flex flex-col items-start">
+                    <span className="font-medium">Export Excel</span>
+                    <span className="text-xs text-gray-500">Formatted tables</span>
+                  </div>
+                  {exportMutation.isPending && exportMutation.variables?.format === 'excel' && (
+                    <RefreshCw className="h-4 w-4 animate-spin ml-2" />
+                  )}
+                </Button>
+                
+                <Button 
+                  variant="default" 
+                  type="button"
+                  onClick={() => {
+                    if (!filters.selectedSubscription) {
+                      toast.error('Please select a subscription first');
+                      return;
+                    }
+                    // Enhanced CSV export with NSG and ASG data in separate columns
+                    exportMutation.mutate('csv');
+                  }}
+                  disabled={exportMutation.isPending || !filters.selectedSubscription}
+                  className="flex items-center justify-center space-x-2 h-12 bg-green-600 hover:bg-green-700"
+                >
+                  <Download className="h-5 w-5" />
+                  <div className="flex flex-col items-start">
+                    <span className="font-medium">Enhanced CSV</span>
+                    <span className="text-xs text-white/80">NSG & ASG columns</span>
+                  </div>
+                  {exportMutation.isPending && exportMutation.variables === 'csv' && (
+                    <RefreshCw className="h-4 w-4 animate-spin ml-2" />
+                  )}
+                </Button>
+              </div>
+              
+              {/* Export Status */}
+              {!filters.selectedSubscription && (
+                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-4 h-4 bg-yellow-500 rounded-full flex items-center justify-center">
+                      <span className="text-white text-xs font-bold">!</span>
+                    </div>
+                    <p className="text-sm text-yellow-800">Please select a subscription to enable export functionality.</p>
+                  </div>
+                </div>
+              )}
+              
+              {/* Export Information */}
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <h4 className="text-sm font-medium text-gray-900 mb-2">Export Information</h4>
+                <ul className="text-xs text-gray-600 space-y-1">
+                  <li>• CSV: Basic data export for analysis and reporting</li>
+                  <li>• Excel: Formatted tables with charts and formulas</li>
+                  <li>• Enhanced CSV: NSG and ASG data in separate columns</li>
+                  <li>• Includes security rules, ASG mappings, and compliance data</li>
+                  <li>• All exports filtered by your current selection criteria</li>
+                </ul>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Action Buttons */}
+        <div className="flex flex-col sm:flex-row justify-end space-y-3 sm:space-y-0 sm:space-x-4 animate-fade-in">
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full sm:w-auto"
+          >
+            Discard Changes
+          </Button>
+          <Button
+            type="submit"
+            disabled={backupMutation.isPending}
+            className="w-full sm:w-auto"
+          >
+            {backupMutation.isPending ? 'Creating...' : 'Save Configuration'}
+          </Button>
+        </div>
+        </form>
+      ) : (
+        // Restore Tab Content
+        <div className="space-y-8">
+          {/* Restore Source Selection */}
+          <Card className="animate-slide-up">
+            <CardHeader>
+              <div className="flex items-center space-x-2">
+                <RotateCcw className="h-4 w-4 text-green-600" />
+                <CardTitle>Restore Source</CardTitle>
+              </div>
+              <CardDescription>
+                Choose the source for your restore operation.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div
+                  className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                    restoreSource === 'storage'
+                      ? 'border-green-500 bg-green-50'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                  onClick={() => setRestoreSource('storage')}
+                >
+                  <div className="flex items-center space-x-3">
+                    <Database className="h-5 w-5 text-green-600" />
+                    <div>
+                      <h3 className="font-medium">Azure Storage</h3>
+                      <p className="text-sm text-gray-600">Restore from backup files in Azure Storage</p>
+                    </div>
+                  </div>
+                </div>
+                <div
+                  className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                    restoreSource === 'csv'
+                      ? 'border-green-500 bg-green-50'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                  onClick={() => setRestoreSource('csv')}
+                >
+                  <div className="flex items-center space-x-3">
+                    <Upload className="h-5 w-5 text-green-600" />
+                    <div>
+                      <h3 className="font-medium">CSV File</h3>
+                      <p className="text-sm text-gray-600">Upload and restore from CSV file</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Restore Configuration */}
+          {restoreSource === 'storage' && (
+            <Card className="animate-slide-up">
+              <CardHeader>
+                <CardTitle>Select Backup File</CardTitle>
+                <CardDescription>
+                  Choose a backup file from Azure Storage to restore.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <FilterComponent
+                    selectedSubscription={filters.selectedSubscription}
+                    selectedResourceGroup={filters.selectedResourceGroup}
+                    selectedLocation={filters.selectedLocation}
+                    selectedNSG={filters.selectedNSG}
+                    onFilterChange={handleFilterChange}
+                    showNSGSelector={false}
+                  />
+                  
+                  {backupFiles.length > 0 && (
+                    <div className="space-y-2">
+                      <Label>Available Backup Files</Label>
+                      <select
+                        value={selectedBackupFile || ''}
+                        onChange={(e) => setSelectedBackupFile(e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded-md"
+                      >
+                        <option value="">Select a backup file...</option>
+                        {backupFiles.map((file) => (
+                          <option key={file.id} value={file.id}>
+                            {file.name} - {new Date(file.createdAt).toLocaleDateString()}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {restoreSource === 'csv' && (
+            <Card className="animate-slide-up">
+              <CardHeader>
+                <CardTitle>Upload CSV File</CardTitle>
+                <CardDescription>
+                  Upload a CSV file containing NSG rules to restore.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                    <Upload className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                    <p className="text-sm text-gray-600 mb-2">Click to upload or drag and drop</p>
+                    <input
+                      type="file"
+                      accept=".csv"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                      id="csv-upload"
+                    />
+                    <label
+                      htmlFor="csv-upload"
+                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 cursor-pointer"
+                    >
+                      Choose File
+                    </label>
+                    {uploadedFile && (
+                      <p className="text-sm text-green-600 mt-2">
+                        Selected: {uploadedFile.name}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Preview and Restore */}
+          {((restoreSource === 'storage' && selectedBackupFile) || (restoreSource === 'csv' && uploadedFile)) && (
+            <Card className="animate-slide-up">
+              <CardHeader>
+                <CardTitle>Preview & Restore</CardTitle>
+                <CardDescription>
+                  Preview the rules before restoring and make any necessary edits.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <Button
+                  onClick={handlePreviewRestore}
+                  disabled={restorePreviewMutation.isPending}
+                  className="w-full"
+                >
+                  {restorePreviewMutation.isPending ? 'Loading Preview...' : 'Preview Restore'}
+                </Button>
+
+                {restorePreview && (
+                  <div className="space-y-4">
+                    <div className="bg-blue-50 p-4 rounded-lg">
+                      <h4 className="font-medium text-blue-900 mb-2">Restore Summary</h4>
+                      <p className="text-sm text-blue-700">
+                        {restorePreview.rules.length} rules will be restored
+                      </p>
+                    </div>
+
+                    <div className="max-h-96 overflow-y-auto border rounded-lg">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="p-2 text-left">Name</th>
+                            <th className="p-2 text-left">Priority</th>
+                            <th className="p-2 text-left">Direction</th>
+                            <th className="p-2 text-left">Access</th>
+                            <th className="p-2 text-left">Source</th>
+                            <th className="p-2 text-left">Destination</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {editableRules.map((rule, index) => (
+                            <tr key={index} className="border-t">
+                              <td className="p-2">
+                                <input
+                                  type="text"
+                                  value={rule.name}
+                                  onChange={(e) => handleRuleEdit(index, 'name', e.target.value)}
+                                  className="w-full p-1 border rounded text-xs"
+                                />
+                              </td>
+                              <td className="p-2">
+                                <input
+                                  type="number"
+                                  value={rule.priority}
+                                  onChange={(e) => handleRuleEdit(index, 'priority', e.target.value)}
+                                  className="w-full p-1 border rounded text-xs"
+                                />
+                              </td>
+                              <td className="p-2">
+                                <select
+                                  value={rule.direction}
+                                  onChange={(e) => handleRuleEdit(index, 'direction', e.target.value)}
+                                  className="w-full p-1 border rounded text-xs"
+                                >
+                                  <option value="Inbound">Inbound</option>
+                                  <option value="Outbound">Outbound</option>
+                                </select>
+                              </td>
+                              <td className="p-2">
+                                <select
+                                  value={rule.access}
+                                  onChange={(e) => handleRuleEdit(index, 'access', e.target.value)}
+                                  className="w-full p-1 border rounded text-xs"
+                                >
+                                  <option value="Allow">Allow</option>
+                                  <option value="Deny">Deny</option>
+                                </select>
+                              </td>
+                              <td className="p-2">
+                                <input
+                                  type="text"
+                                  value={rule.sourceAddressPrefix}
+                                  onChange={(e) => handleRuleEdit(index, 'sourceAddressPrefix', e.target.value)}
+                                  className="w-full p-1 border rounded text-xs"
+                                />
+                              </td>
+                              <td className="p-2">
+                                <input
+                                  type="text"
+                                  value={rule.destinationAddressPrefix}
+                                  onChange={(e) => handleRuleEdit(index, 'destinationAddressPrefix', e.target.value)}
+                                  className="w-full p-1 border rounded text-xs"
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <Button
+                      onClick={handleRestoreConfirm}
+                      disabled={restoreMutation.isPending}
+                      className="w-full bg-green-600 hover:bg-green-700"
+                    >
+                      {restoreMutation.isPending ? 'Restoring...' : 'Confirm Restore'}
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+        
+        {/* Right Sidebar - Backup Status */}
+        <div className="w-80 space-y-6">
+          {/* Backup Status */}
+          <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center space-x-2 text-lg">
+                <Shield className="w-5 h-5 text-green-600" />
+                <span>Backup Status</span>
+              </CardTitle>
+              <CardDescription>Monitor your backup operations</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {backupStatuses.map((backup) => {
+                const getStatusColor = (status: string) => {
+                  switch (status) {
+                    case 'completed': return 'text-green-600 bg-green-50';
+                    case 'running': return 'text-blue-600 bg-blue-50';
+                    case 'scheduled': return 'text-yellow-600 bg-yellow-50';
+                    case 'failed': return 'text-red-600 bg-red-50';
+                    default: return 'text-gray-600 bg-gray-50';
+                  }
+                };
+                
+                const getStatusIcon = (status: string) => {
+                  switch (status) {
+                    case 'completed': return <Check className="w-4 h-4" />;
+                    case 'running': return <Clock className="w-4 h-4 animate-spin" />;
+                    case 'scheduled': return <Calendar className="w-4 h-4" />;
+                    case 'failed': return <span className="w-4 h-4 text-center">!</span>;
+                    default: return <Clock className="w-4 h-4" />;
+                  }
+                };
+                
+                return (
+                  <div key={backup.id} className="p-3 border rounded-lg hover:bg-gray-50">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center space-x-2">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(backup.status)}`}>
+                          {backup.type}
+                        </span>
+                        <span className="font-medium text-sm">{backup.name}</span>
+                      </div>
+                      <div className={`flex items-center space-x-1 ${getStatusColor(backup.status).split(' ')[0]}`}>
+                        {getStatusIcon(backup.status)}
+                        <span className="text-xs capitalize">{backup.status}</span>
+                      </div>
+                    </div>
+                    <div className="text-xs text-gray-500 space-y-1">
+                      <div>Frequency: {backup.frequency}</div>
+                      <div>Next: {new Date(backup.nextRun).toLocaleString()}</div>
+                      <div>Last: {new Date(backup.lastRun).toLocaleString()}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+
+          {/* Schedule Details */}
+          <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center space-x-2 text-lg">
+                <Calendar className="w-5 h-5 text-purple-600" />
+                <span>Schedule Details</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="text-sm">
+                <div className="flex justify-between py-2 border-b">
+                  <span className="text-gray-600">Selected Date:</span>
+                  <span className="font-medium">{formatDate(selectedDate)}</span>
+                </div>
+                <div className="flex justify-between py-2 border-b">
+                  <span className="text-gray-600">Selected Time:</span>
+                  <span className="font-medium">{selectedTime}</span>
+                </div>
+                <div className="flex justify-between py-2 border-b">
+                  <span className="text-gray-600">Frequency:</span>
+                  <span className="font-medium capitalize">{formData.frequency}</span>
+                </div>
+                <div className="flex justify-between py-2 border-b">
+                  <span className="text-gray-600">Storage Account:</span>
+                  <span className="font-medium text-xs">{formData.storageAccount || 'Auto-create'}</span>
+                </div>
+                <div className="flex justify-between py-2 border-b">
+                  <span className="text-gray-600">Container:</span>
+                  <span className="font-medium text-xs">{formData.container || 'nsg-backups'}</span>
+                </div>
+                <div className="flex justify-between py-2 border-b">
+                  <span className="text-gray-600">Backup Type:</span>
+                  <span className="font-medium capitalize">{backupType}</span>
+                </div>
+                <div className="flex justify-between py-2 border-b">
+                  <span className="text-gray-600">Resource Type:</span>
+                  <span className="font-medium capitalize">{resourceType === 'both' ? 'NSG & ASG' : resourceType.toUpperCase()}</span>
+                </div>
+                {backupType === 'bulk' && (
+                  <>
+                    {(resourceType === 'nsg' || resourceType === 'both') && (
+                      <div className="flex justify-between py-2 border-b">
+                        <span className="text-gray-600">Selected NSGs:</span>
+                        <span className="font-medium">{selectedNSGs.length}</span>
+                      </div>
+                    )}
+                    {(resourceType === 'asg' || resourceType === 'both') && (
+                      <div className="flex justify-between py-2">
+                        <span className="text-gray-600">Selected ASGs:</span>
+                        <span className="font-medium">{selectedASGs.length}</span>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default BackupPage;

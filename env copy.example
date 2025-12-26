@@ -1,0 +1,59 @@
+# Azure Configuration
+AZURE_TENANT_ID=your_tenant_id_here
+AZURE_CLIENT_ID=your_client_id_here
+AZURE_CLIENT_SECRET=your_client_secret_here
+AZURE_SUBSCRIPTION_ID=your_subscription_id_here
+AZURE_KEY_VAULT_URL=https://your-vault.vault.azure.net/
+
+# Database Configuration
+DATABASE_URL=postgresql://cloudopsai:cloudopsai123@localhost:5432/cloudopsai
+REDIS_URL=redis://localhost:6379
+
+# Application Configuration
+SECRET_KEY=your-super-secret-key-here-change-in-production
+ENVIRONMENT=development
+DEBUG=true
+LOG_LEVEL=INFO
+
+# Frontend Configuration
+REACT_APP_API_URL=http://localhost:8000
+REACT_APP_WS_URL=ws://localhost:8000/ws
+
+# Azure Blob Storage
+AZURE_STORAGE_CONNECTION_STRING=your-storage-connection-string
+AZURE_STORAGE_CONTAINER_NAME=cloudopsai-reports
+
+# AI Model Configuration
+OPENAI_API_KEY=your-openai-api-key
+ANTHROPIC_API_KEY=your-anthropic-api-key
+AZURE_OPENAI_ENDPOINT=https://your-openai-resource.openai.azure.com/
+AZURE_OPENAI_API_KEY=your-azure-openai-key
+
+# Email Configuration (for notifications)
+SMTP_HOST=smtp.office365.com
+SMTP_PORT=587
+SMTP_USERNAME=your-email@domain.com
+SMTP_PASSWORD=your-email-password
+
+# Monitoring and Observability
+PROMETHEUS_ENDPOINT=http://localhost:9090
+JAEGER_ENDPOINT=http://localhost:14268/api/traces
+
+# Security Configuration
+CORS_ORIGINS=http://localhost:3000,http://localhost:8000
+SESSION_SECRET=your-session-secret
+JWT_SECRET=your-jwt-secret
+JWT_ALGORITHM=HS256
+JWT_EXPIRATION=3600
+
+# Backup Configuration
+BACKUP_RETENTION_DAYS=30
+BACKUP_SCHEDULE=0 2 * * *  # Daily at 2 AM
+
+# Rate Limiting
+RATE_LIMIT_REQUESTS=100
+RATE_LIMIT_WINDOW=60
+
+# File Upload Configuration
+MAX_FILE_SIZE=10485760  # 10MB
+ALLOWED_FILE_TYPES=.pdf,.doc,.docx,.txt,.csv,.json

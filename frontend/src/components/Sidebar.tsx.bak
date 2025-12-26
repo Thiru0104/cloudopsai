@@ -1,0 +1,185 @@
+import React from 'react'
+import { NavLink } from 'react-router-dom'
+import { 
+  LayoutDashboard, 
+  Shield, 
+  Users, 
+  HardDrive, 
+  Bot, 
+  Wrench, 
+  FileText, 
+  Activity, 
+  MessageSquare, 
+  Settings,
+  X,
+  ChevronLeft
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { useAuth } from '@/hooks/useAuth'
+
+interface SidebarProps {
+  open: boolean
+  setOpen: (open: boolean) => void
+}
+
+const navigation = [
+  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { name: 'NSGs', href: '/nsgs', icon: Shield },
+  { name: 'ASGs', href: '/asgs', icon: Users },
+  { name: 'Backups', href: '/backups', icon: HardDrive },
+  { name: 'AI Agents', href: '/agents', icon: Bot },
+  { name: 'Remediation', href: '/remediation', icon: Wrench },
+  { name: 'Documents', href: '/documents', icon: FileText },
+  { name: 'Monitoring', href: '/monitoring', icon: Activity },
+  { name: 'Chat', href: '/chat', icon: MessageSquare },
+  { name: 'Settings', href: '/settings', icon: Settings },
+]
+
+export const Sidebar: React.FC<SidebarProps> = ({ open, setOpen }) => {
+  const { user } = useAuth()
+
+  return (
+    <>
+      {/* Desktop sidebar */}
+      <div className="hidden lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:w-72 lg:flex-col">
+        <div className="flex grow flex-col gap-y-5 overflow-y-auto bg-white dark:bg-gray-800 px-6 pb-4 border-r border-gray-200 dark:border-gray-700">
+          {/* Logo */}
+          <div className="flex h-16 shrink-0 items-center">
+            <div className="flex items-center space-x-3">
+              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                <Shield className="w-5 h-5 text-white" />
+              </div>
+              <span className="text-xl font-bold text-gray-900 dark:text-white">
+                CloudOpsAI
+              </span>
+            </div>
+          </div>
+
+          {/* Navigation */}
+          <nav className="flex flex-1 flex-col">
+            <ul role="list" className="flex flex-1 flex-col gap-y-7">
+              <li>
+                <ul role="list" className="-mx-2 space-y-1">
+                  {navigation.map((item) => (
+                    <li key={item.name}>
+                      <NavLink
+                        to={item.href}
+                        className={({ isActive }) =>
+                          cn(
+                            isActive
+                              ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                              : 'text-gray-700 dark:text-gray-300 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-gray-50 dark:hover:bg-gray-700/50',
+                            'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-medium transition-colors'
+                          )
+                        }
+                      >
+                        <item.icon className="h-6 w-6 shrink-0" aria-hidden="true" />
+                        {item.name}
+                      </NavLink>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+              
+              {/* User info */}
+              <li className="mt-auto">
+                <div className="flex items-center gap-x-4 px-2 py-3 text-sm font-semibold leading-6 text-gray-900 dark:text-white">
+                  <div className="w-8 h-8 bg-gray-500 rounded-full flex items-center justify-center">
+                    <span className="text-white text-sm font-medium">
+                      {user?.full_name?.charAt(0) || user?.username?.charAt(0) || 'U'}
+                    </span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium">
+                      {user?.full_name || user?.username}
+                    </span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400 capitalize">
+                      {user?.role}
+                    </span>
+                  </div>
+                </div>
+              </li>
+            </ul>
+          </nav>
+        </div>
+      </div>
+
+      {/* Mobile sidebar */}
+      <div className={cn(
+        "fixed inset-y-0 left-0 z-50 w-72 bg-white dark:bg-gray-800 transform transition-transform duration-300 ease-in-out lg:hidden",
+        open ? "translate-x-0" : "-translate-x-full"
+      )}>
+        <div className="flex h-full flex-col gap-y-5 overflow-y-auto px-6 pb-4 border-r border-gray-200 dark:border-gray-700">
+          {/* Mobile header */}
+          <div className="flex h-16 shrink-0 items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                <Shield className="w-5 h-5 text-white" />
+              </div>
+              <span className="text-xl font-bold text-gray-900 dark:text-white">
+                CloudOpsAI
+              </span>
+            </div>
+          </div>
+            <button
+              type="button"
+              className="rounded-md p-2 text-gray-400 hover:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
+              onClick={() => setOpen(false)}
+            >
+              <X className="h-6 w-6" aria-hidden="true" />
+            </button>
+          </div>
+
+          {/* Mobile navigation */}
+          <nav className="flex flex-1 flex-col">
+            <ul role="list" className="flex flex-1 flex-col gap-y-7">
+              <li>
+                <ul role="list" className="-mx-2 space-y-1">
+                  {navigation.map((item) => (
+                    <li key={item.name}>
+                      <NavLink
+                        to={item.href}
+                        className={({ isActive }) =>
+                          cn(
+                            isActive
+                              ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                              : 'text-gray-700 dark:text-gray-300 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-gray-50 dark:hover:bg-gray-700/50',
+                            'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-medium transition-colors'
+                          )
+                        }
+                        onClick={() => setOpen(false)}
+                      >
+                        <item.icon className="h-6 w-6 shrink-0" aria-hidden="true" />
+                        {item.name}
+                      </NavLink>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+              
+              {/* Mobile user info */}
+              <li className="mt-auto">
+                <div className="flex items-center gap-x-4 px-2 py-3 text-sm font-semibold leading-6 text-gray-900 dark:text-white">
+                  <div className="w-8 h-8 bg-gray-500 rounded-full flex items-center justify-center">
+                    <span className="text-white text-sm font-medium">
+                      {user?.full_name?.charAt(0) || user?.username?.charAt(0) || 'U'}
+                    </span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium">
+                      {user?.full_name || user?.username}
+                    </span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400 capitalize">
+                      {user?.role}
+                    </span>
+                  </div>
+                </div>
+              </li>
+            </ul>
+          </nav>
+        </div>
+      </div>
+    </>
+  )
+}
+

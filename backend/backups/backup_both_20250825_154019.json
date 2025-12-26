@@ -1,0 +1,12 @@
+{
+  "backup_metadata": {
+    "backup_id": "backup-5416",
+    "created_at": "2025-08-25T15:40:19.009322Z",
+    "backup_type": "immediate",
+    "resource_type": "both",
+    "storage_account": "thirustorage001",
+    "container": "nsg-backups"
+  },
+  "nsgs": [],
+  "asgs": []
+}

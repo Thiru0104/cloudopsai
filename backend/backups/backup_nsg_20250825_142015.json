@@ -1,0 +1,12 @@
+{
+  "backup_metadata": {
+    "backup_id": "backup-83",
+    "created_at": "2025-08-25T14:20:15.777912Z",
+    "backup_type": "immediate",
+    "resource_type": "nsg",
+    "storage_account": "teststorage",
+    "container": "backups"
+  },
+  "nsgs": [],
+  "asgs": []
+}

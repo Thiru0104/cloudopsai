@@ -1,0 +1,13 @@
+HTTP/1.0 200 OK
+Server: BaseHTTP/0.6 Python/3.10.10
+Date: Mon, 25 Aug 2025 16:04:03 GMT
+Content-Type: text/csv
+Content-Disposition: attachment; filename="backup-export-0a519345.csv"
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
+Access-Control-Allow-Headers: Content-Type
+
+NSG Name,Resource Group,Location,Subscription ID,Inbound Rules Count,Outbound Rules Count,Compliance Score,Risk Level,Last Sync,Backup Status
+AE-nsg,AE-rg,East US,0a519345-d9f4-400c-a3b4-e8379de6638e,3,2,85,Low,2024-08-25T10:30:00Z,Completed
+Web-nsg,Web-rg,West US 2,0a519345-d9f4-400c-a3b4-e8379de6638e,5,3,92,Low,2024-08-25T09:15:00Z,Completed
+DB-nsg,Database-rg,Central US,0a519345-d9f4-400c-a3b4-e8379de6638e,2,1,78,Medium,2024-08-25T08:45:00Z,Pending

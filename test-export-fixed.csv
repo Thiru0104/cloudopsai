@@ -1,0 +1,8 @@
+HTTP/1.0 500 Internal Server Error
+Server: BaseHTTP/0.6 Python/3.10.10
+Date: Mon, 25 Aug 2025 13:34:53 GMT
+Content-Type: application/json
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
+Access-Control-Allow-Headers: Content-Type
+

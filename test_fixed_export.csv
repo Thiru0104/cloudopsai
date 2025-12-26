@@ -1,0 +1,7 @@
+Subscription,Resource Group,NSG Name,Rule Name,Direction,Priority,Access,Protocol,Source,Destination,Owner Address,Destination Address,Source ASG,Destination ASG,Description
+12345678,opanai,Thirunsg001,AllowVnetInBound,Inbound,65000,Allow,*,*,*,VirtualNetwork,VirtualNetwork,None,None,Allow inbound traffic from all VMs in VNET
+12345678,opanai,Thirunsg001,AllowAzureLoadBalancerInBound,Inbound,65001,Allow,*,*,*,AzureLoadBalancer,*,None,None,Allow inbound traffic from azure load balancer
+12345678,opanai,Thirunsg001,DenyAllInBound,Inbound,65500,Deny,*,*,*,*,*,None,None,Deny all inbound traffic
+12345678,opanai,Thirunsg001,AllowVnetOutBound,Outbound,65000,Allow,*,*,*,VirtualNetwork,VirtualNetwork,None,None,Allow outbound traffic from all VMs to all VMs in VNET
+12345678,opanai,Thirunsg001,AllowInternetOutBound,Outbound,65001,Allow,*,*,*,*,Internet,None,None,Allow outbound traffic from all VMs to Internet
+12345678,opanai,Thirunsg001,DenyAllOutBound,Outbound,65500,Deny,*,*,*,*,*,None,None,Deny all outbound traffic

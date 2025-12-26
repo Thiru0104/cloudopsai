@@ -1,0 +1,47 @@
+{
+  "backup_metadata": {
+    "backup_id": "backup-921",
+    "created_at": "2025-08-25T14:16:26.164679Z",
+    "backup_type": "immediate",
+    "resource_type": "nsg",
+    "storage_account": "thirustorage001",
+    "container": "nsg-backups"
+  },
+  "nsgs": [
+    {
+      "id": "EUS-nsg",
+      "name": "NSG-EUS-nsg",
+      "resource_group": "resourcegroup002",
+      "location": "",
+      "subscription_id": "0a519345-d9f4-400c-a3b4-e8379de6638e",
+      "inbound_rules": [
+        {
+          "name": "AllowHTTP",
+          "priority": 100,
+          "direction": "Inbound",
+          "access": "Allow",
+          "protocol": "TCP",
+          "source_port_range": "*",
+          "destination_port_range": "80",
+          "source_address_prefix": "*",
+          "destination_address_prefix": "*"
+        }
+      ],
+      "outbound_rules": [
+        {
+          "name": "AllowInternet",
+          "priority": 100,
+          "direction": "Outbound",
+          "access": "Allow",
+          "protocol": "*",
+          "source_port_range": "*",
+          "destination_port_range": "*",
+          "source_address_prefix": "*",
+          "destination_address_prefix": "Internet"
+        }
+      ],
+      "backed_up_at": "2025-08-25T14:16:26.164679Z"
+    }
+  ],
+  "asgs": []
+}

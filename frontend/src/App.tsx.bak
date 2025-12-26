@@ -1,0 +1,124 @@
+import React, { useState, useEffect } from 'react'
+
+function App() {
+  const [backendStatus, setBackendStatus] = useState<'loading' | 'connected' | 'error'>('loading')
+
+  useEffect(() => {
+    const checkBackend = async () => {
+      try {
+        const response = await fetch('http://localhost:4001/health')
+        if (response.ok) {
+          setBackendStatus('connected')
+        } else {
+          setBackendStatus('error')
+        }
+      } catch (error) {
+        setBackendStatus('error')
+      }
+    }
+
+    checkBackend()
+  }, [])
+
+  return (
+    <div style={{ 
+      minHeight: '100vh', 
+      backgroundColor: '#1f2937', 
+      color: 'white',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontFamily: 'Arial, sans-serif'
+    }}>
+      <div style={{ textAlign: 'center', maxWidth: '600px', padding: '20px' }}>
+        <h1 style={{ fontSize: '3rem', marginBottom: '1rem', color: '#60a5fa' }}>
+          Welcome to CloudOpsAI
+        </h1>
+        <p style={{ fontSize: '1.25rem', marginBottom: '2rem', color: '#d1d5db' }}>
+          Azure NSG/ASG Management Platform
+        </p>
+        
+        <div style={{ 
+          backgroundColor: '#374151', 
+          borderRadius: '8px', 
+          padding: '2rem',
+          marginBottom: '2rem'
+        }}>
+          <h2 style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>
+            Backend Status
+          </h2>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+            <div style={{
+              width: '12px',
+              height: '12px',
+              borderRadius: '50%',
+              backgroundColor: 
+                backendStatus === 'loading' ? '#f59e0b' :
+                backendStatus === 'connected' ? '#10b981' : '#ef4444',
+              animation: backendStatus === 'loading' ? 'pulse 2s infinite' : 'none'
+            }}></div>
+            <span style={{ fontSize: '1rem' }}>
+              {backendStatus === 'loading' ? 'Checking backend...' :
+               backendStatus === 'connected' ? 'Backend connected successfully!' : 'Backend connection failed'}
+            </span>
+          </div>
+        </div>
+
+        <div style={{ 
+          backgroundColor: '#374151', 
+          borderRadius: '8px', 
+          padding: '2rem'
+        }}>
+          <h2 style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>
+            Quick Links
+          </h2>
+          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button style={{
+              backgroundColor: '#3b82f6',
+              color: 'white',
+              border: 'none',
+              padding: '0.75rem 1.5rem',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '1rem'
+            }}>
+              Dashboard
+            </button>
+            <button style={{
+              backgroundColor: '#059669',
+              color: 'white',
+              border: 'none',
+              padding: '0.75rem 1.5rem',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '1rem'
+            }}>
+              NSGs
+            </button>
+            <button style={{
+              backgroundColor: '#7c3aed',
+              color: 'white',
+              border: 'none',
+              padding: '0.75rem 1.5rem',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '1rem'
+            }}>
+              ASGs
+            </button>
+          </div>
+        </div>
+
+        <style>{`
+          @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+          }
+        `}</style>
+      </div>
+    </div>
+  )
+}
+
+export default App
+
