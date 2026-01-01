@@ -1,36 +1,43 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import List, Dict, Optional, Any
-from app.services.azure_service import AzureService
+from app.services.storage_service import StorageService
+from app.models.storage import StorageReportResponse, ContainerReportResponse
 import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-def get_azure_service():
-    return AzureService()
+def get_storage_service():
+    return StorageService()
 
-@router.get("/storage-accounts")
-async def list_storage_accounts(
+@router.get("/report", response_model=StorageReportResponse)
+async def get_storage_report(
     subscription_id: Optional[str] = None,
-    azure_service: AzureService = Depends(get_azure_service)
+    region: Optional[str] = None,
+    resource_group: Optional[str] = None,
+    account_name: Optional[str] = None,
+    storage_service: StorageService = Depends(get_storage_service)
 ):
-    """List storage accounts"""
+    """Get detailed storage report"""
     try:
-        storage_accounts = await azure_service.list_storage_accounts(subscription_id)
-        return {"storage_accounts": storage_accounts}
+        report = await storage_service.get_storage_report(subscription_id, region, resource_group, account_name)
+        return {"report": report}
     except Exception as e:
-        logger.error(f"Error listing storage accounts: {e}")
+        logger.error(f"Error getting storage report: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/containers")
-async def list_containers(
-    storage_account: Optional[str] = None,
-    azure_service: AzureService = Depends(get_azure_service)
+@router.get("/containers", response_model=ContainerReportResponse)
+async def get_containers_report(
+    subscription_id: Optional[str] = None,
+    region: Optional[str] = None,
+    resource_group: Optional[str] = None,
+    account_name: Optional[str] = None,
+    storage_service: StorageService = Depends(get_storage_service)
 ):
-    """List containers in a storage account"""
+    """Get detailed container report"""
     try:
-        containers = await azure_service.list_containers(storage_account_name=storage_account)
-        return {"containers": containers}
+        report = await storage_service.get_containers_report(subscription_id, region, resource_group, account_name)
+        return {"report": report}
     except Exception as e:
-        logger.error(f"Error listing containers: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error getting container report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -8,7 +8,8 @@ import {
   FileText, 
   Bot,
   Settings,
-  X
+  X,
+  HardDrive
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -19,6 +20,7 @@ interface SidebarProps {
 const navigation = [
   { name: 'Dashboard', href: '/', icon: Cloud },
   { name: 'NSGs', href: '/nsgs', icon: Shield },
+  { name: 'Storage', href: '/storage', icon: HardDrive },
   { name: 'Backup', href: '/backup', icon: Database },
   { name: 'Restore', href: '/restore', icon: RotateCcw },
   { name: 'Golden Rules', href: '/golden-rule', icon: FileText },
@@ -184,3 +186,4 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 };
 
 export default Sidebar;
+
