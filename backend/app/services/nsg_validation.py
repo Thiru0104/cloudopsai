@@ -289,7 +289,7 @@ class NSGValidator:
                 
                 'isWithinLimits': len(violations) == 0,
                 'violations': [{
-                    'type': v.violation_type,
+                    'type': v.type,
                     'message': v.message,
                     'affectedRules': v.affected_rules,
                     'currentCount': v.current_count,

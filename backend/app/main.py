@@ -13,6 +13,7 @@ from typing import Dict, Any
 
 from app.core.config import settings
 from app.core.database import init_db
+from app.services.scheduler_service import scheduler_service
 import requests
 
 # Configure logging
@@ -79,8 +80,10 @@ async def startup_event():
     """Initialize database on startup without failing the app"""
     try:
         await asyncio.wait_for(init_db(), timeout=5)
+        # Initialize scheduler
+        scheduler_service.load_jobs_from_db()
     except Exception as e:
-        logger.error(f"Startup DB init failed: {e}")
+        logger.error(f"Startup init failed: {e}")
     except asyncio.TimeoutError:
         logger.warning("Startup DB init timed out; continuing without DB")
 

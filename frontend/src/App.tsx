@@ -15,7 +15,7 @@ import RestorePage from './pages/RestorePage';
 import GoldenRulePage from './pages/GoldenRulePage';
 import ReportsPage from './pages/ReportsPage';
 import StoragePage from './pages/StoragePage';
-import ContainerPage from './pages/ContainerPage';
+import StorageValidationPage from './pages/StorageValidationPage';
 import NSGValidationEnhancedPage from './pages/NSGValidationEnhancedPage';
 import AgentsPage from './pages/AgentsPage';
 import SettingsPage from './pages/SettingsPage';
@@ -48,7 +48,9 @@ function App() {
                         <Route path="/" element={<DashboardPage />} />
                         <Route path="/nsgs" element={<NSGsPage />} />
                         <Route path="/storage" element={<StoragePage />} />
-                        <Route path="/storage/containers" element={<ContainerPage />} />
+                        <Route path="/storage/accounts" element={<StoragePage view="accounts" />} />
+                        <Route path="/storage/containers" element={<StoragePage view="containers" />} />
+                        <Route path="/storage/validation" element={<StorageValidationPage />} />
                         <Route path="/nsgs/:id/rules" element={<NSGRuleEditorPage />} />
                         <Route path="/backup" element={<BackupPage />} />
                         <Route path="/restore" element={<RestorePage />} />

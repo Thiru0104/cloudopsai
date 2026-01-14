@@ -40,4 +40,4 @@ async def get_containers_report(
         return {"report": report}
     except Exception as e:
         logger.error(f"Error getting container report: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))

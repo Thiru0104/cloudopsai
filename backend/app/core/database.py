@@ -36,7 +36,12 @@ else:
 
 # Create synchronous engine for services that need sync operations
 # Convert async SQLite URL to sync SQLite URL
-sync_database_url = settings.DATABASE_URL.replace("sqlite+aiosqlite://", "sqlite://")
+sync_database_url = settings.DATABASE_URL
+if "sqlite+aiosqlite" in sync_database_url:
+    sync_database_url = sync_database_url.replace("sqlite+aiosqlite://", "sqlite://")
+elif "postgresql+asyncpg" in sync_database_url:
+    sync_database_url = sync_database_url.replace("postgresql+asyncpg://", "postgresql://")
+
 if "sqlite" in settings.DATABASE_URL:
     sync_engine = create_engine(
         sync_database_url,
@@ -77,7 +82,7 @@ async def init_db():
     """Initialize database connection and create tables"""
     try:
         # Import all models here to ensure they are registered
-        from app.models import user, nsg, agent
+        from app.models import user, nsg, agent, backup
         
         # Create tables for async engine only
         async with engine.begin() as conn:

@@ -137,7 +137,8 @@ const BackupPage: React.FC = () => {
       });
       
       if (!response.ok) {
-        throw new Error('Export failed');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Export failed');
       }
       
       // Handle file download
@@ -195,7 +196,8 @@ const BackupPage: React.FC = () => {
       });
       
       if (!response.ok) {
-        throw new Error('Failed to create backup');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Failed to create backup');
       }
       
       return response.json();
@@ -203,7 +205,7 @@ const BackupPage: React.FC = () => {
     onSuccess: (data) => {
       const fileExtension = backupConfig.backupFormat === 'csv' ? 'csv' : 'json';
       const fileName = data.backup_file || `backup_nsg_${new Date().toISOString().slice(0,19).replace(/[-:]/g, '').replace('T', '_')}.${fileExtension}`;
-      toast.success(`Backup created successfully! File: ${fileName}`);
+      toast.success(`Backup saved successfully to ${backupConfig.storageAccount}/${backupConfig.containerName}`);
       // Reset form
       setBackupConfig({
         backupName: '',

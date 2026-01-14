@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Download, Database, Search, RefreshCw, Filter, ChevronDown, Eye, Box } from 'lucide-react';
 import { apiClient } from '../config/api';
@@ -43,10 +43,21 @@ const formatSize = (gb: number) => {
 
 const StoragePage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   
-  // Tabs
-  const [activeTab, setActiveTab] = useState<'accounts' | 'containers'>('accounts');
+  // Determine active view based on URL path
+  const [activeTab, setActiveTab] = useState<'accounts' | 'containers'>(
+    location.pathname.includes('/containers') ? 'containers' : 'accounts'
+  );
+
+  // Sync activeTab with URL path
+  useEffect(() => {
+    const newTab = location.pathname.includes('/containers') ? 'containers' : 'accounts';
+    if (newTab !== activeTab) {
+      setActiveTab(newTab);
+    }
+  }, [location.pathname]);
 
   // Data
   const [accountsData, setAccountsData] = useState<StorageAccountReport[]>([]);
@@ -80,10 +91,7 @@ const StoragePage: React.FC = () => {
 
   // Initialize from URL params if present
   useEffect(() => {
-      const tab = searchParams.get('tab');
-      if (tab === 'containers') {
-          setActiveTab('containers');
-      }
+      // Tab is now handled by location.pathname
       const account = searchParams.get('account');
       if (account) {
           setSelectedAccountFilter(account);
@@ -188,21 +196,9 @@ const StoragePage: React.FC = () => {
     }
   }, [selectedSubscription, selectedRegion, selectedResourceGroup, activeTab, selectedAccountFilter]);
 
-  const handleTabChange = (tab: 'accounts' | 'containers') => {
-      setActiveTab(tab);
-      // Update URL without reloading
-      const newParams = new URLSearchParams(searchParams);
-      newParams.set('tab', tab);
-      if (tab === 'accounts') {
-          newParams.delete('account'); // Clear account filter when going back to main list
-          setSelectedAccountFilter('All');
-      }
-      setSearchParams(newParams);
-  };
-
   const handleViewContainers = (accountName: string) => {
       setSelectedAccountFilter(accountName);
-      handleTabChange('containers');
+      navigate(`/storage/containers?account=${encodeURIComponent(accountName)}`);
   };
 
   const handleDownload = () => {
@@ -301,18 +297,9 @@ const StoragePage: React.FC = () => {
     <div className="space-y-6" onClick={() => setOpenDropdown(null)}>
       <div className="flex justify-between items-center">
         <div className="flex items-center space-x-6">
-            <button 
-                onClick={() => handleTabChange('accounts')}
-                className={`text-2xl font-bold tracking-tight transition-colors ${activeTab === 'accounts' ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}
-            >
-                Storage Accounts
-            </button>
-            <button 
-                onClick={() => handleTabChange('containers')}
-                className={`text-2xl font-bold tracking-tight transition-colors ${activeTab === 'containers' ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}
-            >
-                Containers
-            </button>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+                {activeTab === 'accounts' ? 'Storage Accounts' : 'Containers'}
+            </h1>
         </div>
         <div className="flex space-x-2">
             <button 

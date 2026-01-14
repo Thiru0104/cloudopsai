@@ -31,4 +31,4 @@ class ContainerReport(BaseModel):
     blob_count: int
 
 class ContainerReportResponse(BaseModel):
-    report: List[ContainerReport]
+    report: List[ContainerReport]

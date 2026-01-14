@@ -1,7 +1,10 @@
 import logging
 import asyncio
+import time
+import json
+from threading import Lock
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from azure.identity import DefaultAzureCredential, ClientSecretCredential
@@ -19,6 +22,12 @@ from app.models.storage import StorageAccountReport, ContainerReport
 
 logger = logging.getLogger(__name__)
 
+# Simple in-memory cache
+# Structure: { key: { 'data': data, 'timestamp': time.time() } }
+CACHE = {}
+CACHE_LOCK = Lock()
+CACHE_TTL = 300  # 5 minutes
+
 class StorageService:
     def __init__(self):
         self.credential = self._get_credential()
@@ -27,6 +36,39 @@ class StorageService:
         # Initialize clients
         self.subscription_client = SubscriptionClient(self.credential)
         self.metrics_client = MetricsQueryClient(self.credential)
+
+    def _get_cache_key(self, prefix: str, **kwargs) -> str:
+        """Generate a unique cache key based on arguments"""
+        # Sort keys to ensure consistent order
+        key_parts = [prefix]
+        for k, v in sorted(kwargs.items()):
+            if v is not None:
+                key_parts.append(f"{k}={v}")
+        return ":".join(key_parts)
+
+    def _get_from_cache(self, key: str):
+        """Retrieve from cache if valid"""
+        with CACHE_LOCK:
+            if key in CACHE:
+                entry = CACHE[key]
+                if time.time() - entry['timestamp'] < CACHE_TTL:
+                    logger.info(f"Cache HIT for {key}")
+                    return entry['data']
+                else:
+                    logger.info(f"Cache EXPIRED for {key}")
+                    del CACHE[key]
+            else:
+                logger.info(f"Cache MISS for {key}")
+        return None
+
+    def _save_to_cache(self, key: str, data: Any):
+        """Save to cache"""
+        with CACHE_LOCK:
+            CACHE[key] = {
+                'data': data,
+                'timestamp': time.time()
+            }
+            logger.info(f"Saved to cache: {key}")
         
     def _get_credential(self):
         """Get Azure credential based on environment"""
@@ -58,6 +100,18 @@ class StorageService:
         account_name: Optional[str] = None
     ) -> List[StorageAccountReport]:
         """Get detailed storage report"""
+        # Check cache first
+        cache_key = self._get_cache_key(
+            "storage_report", 
+            subscription_id=subscription_id, 
+            region=region, 
+            resource_group=resource_group, 
+            account_name=account_name
+        )
+        cached_data = self._get_from_cache(cache_key)
+        if cached_data is not None:
+            return cached_data
+
         try:
             target_subscription_id = subscription_id or self.subscription_id
             if not target_subscription_id:
@@ -296,6 +350,9 @@ class StorageService:
                     if res:
                         report_data.append(res)
             
+            # Save to cache
+            self._save_to_cache(cache_key, report_data)
+
             return report_data
 
         except Exception as e:
@@ -311,6 +368,18 @@ class StorageService:
         account_name: Optional[str] = None
     ) -> List[ContainerReport]:
         """Get detailed container report"""
+        # Check cache first
+        cache_key = self._get_cache_key(
+            "containers_report", 
+            subscription_id=subscription_id, 
+            region=region, 
+            resource_group=resource_group, 
+            account_name=account_name
+        )
+        cached_data = self._get_from_cache(cache_key)
+        if cached_data is not None:
+            return cached_data
+
         try:
             target_subscription_id = subscription_id or self.subscription_id
             if not target_subscription_id:
@@ -443,6 +512,9 @@ class StorageService:
                     if res:
                         report_data.extend(res)
             
+            # Save to cache
+            self._save_to_cache(cache_key, report_data)
+
             return report_data
 
         except Exception as e:
@@ -451,4 +523,4 @@ class StorageService:
 
 
 
-
+

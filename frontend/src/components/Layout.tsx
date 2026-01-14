@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   Cloud, 
@@ -17,7 +17,8 @@ import {
   Activity,
   LogOut,
   Menu,
-  HardDrive
+  HardDrive,
+  Box
 } from 'lucide-react';
 import { useProgress } from '../contexts/ProgressContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -36,6 +37,23 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [expandedMenus, setExpandedMenus] = useState<string[]>(['NSG']);
   
+  const [displaySettings, setDisplaySettings] = useState({
+    showStorage: localStorage.getItem('showStorage') !== 'false',
+    showNSG: localStorage.getItem('showNSG') !== 'false',
+  });
+
+  useEffect(() => {
+    const handleSettingsChange = () => {
+      setDisplaySettings({
+        showStorage: localStorage.getItem('showStorage') !== 'false',
+        showNSG: localStorage.getItem('showNSG') !== 'false',
+      });
+    };
+
+    window.addEventListener('displaySettingsChanged', handleSettingsChange);
+    return () => window.removeEventListener('displaySettingsChanged', handleSettingsChange);
+  }, []);
+
   const activeProgressItems = progressItems.filter(item => 
     item.status === 'in_progress' || item.status === 'pending'
   );
@@ -55,8 +73,17 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const navigation = [
     { name: 'Dashboard', href: '/', icon: Cloud, isGroup: false },
-    { name: 'Storage', href: '/storage', icon: HardDrive, isGroup: false },
-    { 
+    ...(displaySettings.showStorage ? [{ 
+      name: 'Storage', 
+      icon: HardDrive, 
+      isGroup: true,
+      children: [
+        { name: 'Storage Accounts', href: '/storage/accounts', icon: HardDrive },
+        { name: 'Containers', href: '/storage/containers', icon: Box },
+        { name: 'Validation', href: '/storage/validation', icon: Search },
+      ]
+    }] : []),
+    ...(displaySettings.showNSG ? [{ 
       name: 'NSG', 
       icon: Shield,
       isGroup: true,
@@ -69,7 +96,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         { name: 'NSG Validation', href: '/nsg-validation-enhanced', icon: Search },
         { name: 'AI Agents', href: '/agents', icon: Bot },
       ]
-    },
+    }] : []),
     { name: 'Settings', href: '/settings', icon: Settings, isGroup: false },
   ];
 

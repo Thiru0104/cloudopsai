@@ -1,7 +1,7 @@
 // API Configuration
 // Prefer relative URLs during local development to leverage Vite proxy and avoid CORS issues
 const API_BASE_URL = (import.meta.env.DEV)
-  ? ''
+  ? 'http://localhost:8007' // Direct connection to backend to avoid proxy timeouts
   : (import.meta.env.VITE_API_URL || import.meta.env.REACT_APP_API_URL || '');
 
 export const apiConfig = {
@@ -38,7 +38,7 @@ export const apiClient = {
     
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // Increased to 60 second timeout for Azure operations
       
       const token = localStorage.getItem('token');
       const headers: Record<string, string> = {

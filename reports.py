@@ -14,7 +14,6 @@ from app.core.config import settings
 
 # Import Azure SDK exceptions if needed
 from azure.core.exceptions import AzureError
-import ipaddress
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -71,31 +70,6 @@ def _convert_to_nsg_rules(azure_rules) -> List[NSGRule]:
         ))
     return converted_rules
 
-def _count_ports(expr: str) -> int:
-    if not expr or expr == '*':
-        return 0
-    total = 0
-    parts = [p.strip() for p in expr.split(',')]
-    for part in parts:
-        if not part or part == '*':
-            continue
-        if '-' in part:
-            a, b = part.split('-', 1)
-            try:
-                ai = int(a)
-                bi = int(b)
-                if bi >= ai:
-                    total += (bi - ai + 1)
-            except Exception:
-                pass
-        else:
-            try:
-                int(part)
-                total += 1
-            except Exception:
-                pass
-    return total
-
 def get_subscription_name(credential, subscription_id: str) -> str:
     try:
         sub_client = SubscriptionClient(credential)
@@ -140,7 +114,7 @@ async def generate_nsg_rules_report(
                 raw_nsgs = [n for n in raw_nsgs if n.name in nsg_names]
 
         csv_data = []
-        csv_headers = ["Subscription", "Subscription ID", "Resource Group", "NSG Name", "Location", "Inbound Rules", "Outbound Rules", "Total Rules", "Provisioning State"]
+        csv_headers = ["Subscription Name", "Subscription ID", "Resource Group", "NSG Name", "Source No of Rules", "Destination No of Rules", "Total User Rules", "Status"]
         
         processed_nsg_data = []
         
@@ -160,6 +134,12 @@ async def generate_nsg_rules_report(
                     outbound_count += 1
             
             # Count default rules (for information, but not for limit)
+            # Note: The original report seemed to want total inbound/outbound. 
+            # We will include default rules in inbound/outbound counts if that was the intent, 
+            # but usually reports focus on user rules. 
+            # Let's keep total inbound/outbound including default to match previous behavior for those columns,
+            # but add a specific check for user_rules_count for compliance.
+            
             default_inbound = 0
             default_outbound = 0
             for rule in (nsg.default_security_rules or []):
@@ -170,7 +150,6 @@ async def generate_nsg_rules_report(
             
             total_inbound = inbound_count + default_inbound
             total_outbound = outbound_count + default_outbound
-            total_rules = total_inbound + total_outbound
             
             status = "Compliant"
             if user_rules_count > max_rules:
@@ -195,11 +174,10 @@ async def generate_nsg_rules_report(
                 subscription_id,
                 nsg.id.split('/')[4] if nsg.id else resource_group,
                 nsg.name,
-                nsg.location,
-                str(total_inbound) if total_inbound > 0 else "",
-                str(total_outbound) if total_outbound > 0 else "",
-                str(total_rules),
-                nsg.provisioning_state
+                str(total_inbound),
+                str(total_outbound),
+                str(user_rules_count),
+                status
             ])
             
         # Determine global validation status
@@ -389,10 +367,6 @@ async def generate_ip_limitations_report(
         network_client = NetworkManagementClient(credential, subscription_id)
         subscription_name = get_subscription_name(credential, subscription_id)
         
-        # Deduplicate nsg_names if provided
-        if nsg_names:
-            nsg_names = list(set(nsg_names))
-
         nsgs = []
         if resource_group:
             if nsg_names:
@@ -408,20 +382,10 @@ async def generate_ip_limitations_report(
             nsgs = list(network_client.network_security_groups.list_all())
             if nsg_names:
                 nsgs = [n for n in nsgs if n.name in nsg_names]
-        
-        # Deduplicate NSGs based on ID (case-insensitive) to avoid showing the same NSG multiple times
-        unique_nsgs = {}
-        for nsg in nsgs:
-            if nsg.id:
-                nsg_id_lower = nsg.id.lower()
-                if nsg_id_lower not in unique_nsgs:
-                    unique_nsgs[nsg_id_lower] = nsg
-        
-        nsgs = list(unique_nsgs.values())
-
+            
         nsg_validator = NSGValidator()
         csv_data = []
-        csv_headers = ['Subscription Name', 'Subscription ID', 'Resource Group', 'NSG Name', 'Source IP Count', 'Destination IP Count', 'Total IP Count', 'Status']
+        csv_headers = ['Subscription Name', 'Subscription ID', 'Resource Group', 'NSG Name', 'Source IPs + ASGs', 'Destination IPs + ASGs', 'Total IP Count', 'Status']
         
         total_ip_count = 0
         nsg_details = []
@@ -433,11 +397,12 @@ async def generate_ip_limitations_report(
                 converted_rules = _convert_to_nsg_rules(all_rules)
                 analysis_result = nsg_validator.analyze_nsg_rules_from_demo(converted_rules)
                 
-                # Manual extraction for CSV display
+                # Manual extraction for CSV display (Lists of IPs/ASGs)
+                # We perform this because the Validator summary returns counts, not the full lists of strings needed for the report.
                 source_ips_asgs = set()
                 dest_ips_asgs = set()
                 
-                # Helper to process prefix (from reference file logic)
+                # Helper to process prefix
                 def process_prefix(prefix, target_set):
                     if not prefix or prefix == '*': return
                     service_tags = {'VirtualNetwork', 'Internet', 'Any', 'AzureLoadBalancer', 'Storage', 'Sql', 'AzureActiveDirectory'}
@@ -492,9 +457,9 @@ async def generate_ip_limitations_report(
                     subscription_id,
                     nsg.id.split('/')[4] if nsg.id else resource_group,
                     nsg.name,
-                    str(len(source_ips_asgs)),
-                    str(len(dest_ips_asgs)),
-                    str(current_nsg_ip_count),
+                    ', '.join(sorted(source_ips_asgs)) if source_ips_asgs else 'None',
+                    ', '.join(sorted(dest_ips_asgs)) if dest_ips_asgs else 'None',
+                    current_nsg_ip_count,
                     status
                 ])
                 
@@ -581,7 +546,7 @@ async def generate_nsg_ports_report(
                 nsgs = [n for n in nsgs if n.name in nsg_names]
             
         csv_data = []
-        csv_headers = ['Subscription Name', 'Subscription ID', 'Resource Group', 'NSG Name', 'Source Port Count', 'Destination Port Count', 'User Rule Count', 'Status']
+        csv_headers = ['Subscription Name', 'Subscription ID', 'Resource Group', 'NSG Name', 'Source Ports', 'Destination Ports', 'User Rule Count', 'Status']
         
         total_inbound_ports = 0
         total_outbound_ports = 0
@@ -591,54 +556,50 @@ async def generate_nsg_ports_report(
         
         for nsg in nsgs:
             try:
-                # Helper to count ports
-                def calculate_port_count(port_expr):
-                    if not port_expr or port_expr == '*': return 0
-                    count = 0
-                    parts = [p.strip() for p in port_expr.split(',')]
-                    for part in parts:
-                        if not part or part == '*': continue
-                        if '-' in part:
-                            try:
-                                start, end = map(int, part.split('-'))
-                                if end >= start:
-                                    count += (end - start + 1)
-                            except ValueError:
-                                pass
-                        else:
-                            try:
-                                int(part)
-                                count += 1
-                            except ValueError:
-                                pass
-                    return count
-
-                source_port_count = 0
-                dest_port_count = 0
+                source_ports = set()
+                dest_ports = set()
+                # These counts track ports usage across rules
+                inbound_port_usage = 0
+                outbound_port_usage = 0
                 
                 # Compliance is based on user defined rules
                 user_rules = list(nsg.security_rules or [])
                 user_rule_count = len(user_rules)
                 
+                # For port analysis, we might want to see everything, but usually reports focus on what users configured.
+                # However, to be consistent with "NSG Ports", seeing default allowed ports is useful.
+                # But for the "Status" calculation, we MUST use user_rule_count.
                 all_rules = user_rules + list(nsg.default_security_rules or [])
                 
                 for rule in all_rules:
+                    direction = rule.direction.lower() if hasattr(rule, 'direction') else 'unknown'
+                    
                     # Source ports
-                    if hasattr(rule, 'source_port_range') and rule.source_port_range:
-                        source_port_count += calculate_port_count(rule.source_port_range)
+                    if hasattr(rule, 'source_port_range') and rule.source_port_range and rule.source_port_range != '*':
+                        source_ports.add(rule.source_port_range)
+                        if direction == 'inbound': inbound_port_usage += 1
+                        else: outbound_port_usage += 1
+                            
                     if hasattr(rule, 'source_port_ranges') and rule.source_port_ranges:
                         for pr in rule.source_port_ranges:
-                            source_port_count += calculate_port_count(pr)
+                            source_ports.add(pr)
+                            if direction == 'inbound': inbound_port_usage += 1
+                            else: outbound_port_usage += 1
 
                     # Dest ports
-                    if hasattr(rule, 'destination_port_range') and rule.destination_port_range:
-                        dest_port_count += calculate_port_count(rule.destination_port_range)
+                    if hasattr(rule, 'destination_port_range') and rule.destination_port_range and rule.destination_port_range != '*':
+                        dest_ports.add(rule.destination_port_range)
+                        if direction == 'inbound': inbound_port_usage += 1
+                        else: outbound_port_usage += 1
+                            
                     if hasattr(rule, 'destination_port_ranges') and rule.destination_port_ranges:
                         for pr in rule.destination_port_ranges:
-                            dest_port_count += calculate_port_count(pr)
+                            dest_ports.add(pr)
+                            if direction == 'inbound': inbound_port_usage += 1
+                            else: outbound_port_usage += 1
 
-                total_inbound_ports += source_port_count
-                total_outbound_ports += dest_port_count
+                total_inbound_ports += inbound_port_usage
+                total_outbound_ports += outbound_port_usage
                 
                 status = "Compliant"
                 if user_rule_count > MAX_RULES_PER_NSG:
@@ -651,8 +612,8 @@ async def generate_nsg_ports_report(
                     subscription_id,
                     nsg.id.split('/')[4] if nsg.id else resource_group,
                     nsg.name,
-                    str(source_port_count),
-                    str(dest_port_count),
+                    ', '.join(sorted(source_ports)) if source_ports else 'None',
+                    ', '.join(sorted(dest_ports)) if dest_ports else 'None',
                     user_rule_count,
                     status
                 ])
@@ -666,6 +627,7 @@ async def generate_nsg_ports_report(
             except Exception as e:
                 logger.error(f"Error processing NSG {nsg.name}: {e}")
 
+        # Validation status for the whole report
         validation_status = "compliant"
         non_compliant_count = len([n for n in nsg_compliance_info if n['status'] == 'Non-Compliant'])
         warning_count = len([n for n in nsg_compliance_info if n['status'] == 'Warning'])
@@ -675,6 +637,7 @@ async def generate_nsg_ports_report(
         elif warning_count > 0:
             validation_status = "warning"
             
+        # Calculate overall compliance percentage (based on NSGs, not rules)
         total_nsgs = len(nsg_compliance_info)
         compliant_count = len([n for n in nsg_compliance_info if n['status'] == 'Compliant'])
         compliance_percentage = (compliant_count / total_nsgs * 100) if total_nsgs > 0 else 100.0

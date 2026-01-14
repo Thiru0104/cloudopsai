@@ -290,6 +290,10 @@ const RestorePage: React.FC = () => {
 
       const result = await response.json();
       
+      if (result.success === false) {
+        throw new Error(result.message || 'Restore failed');
+      }
+
       // Update progress with final results
       updateProgressItem(progressId, { 
         status: 'completed', 
@@ -304,6 +308,10 @@ const RestorePage: React.FC = () => {
       addLogToItem(progressId, `Restore completed successfully: ${result.restored_rules_count || 0} rules restored`);
       if (result.nsgs_created) {
         addLogToItem(progressId, `NSGs created: ${result.nsgs_created}`);
+      }
+
+      if (result.details && Array.isArray(result.details)) {
+        result.details.forEach((detail: string) => addLogToItem(progressId, detail));
       }
       
       toast.success(`Restore completed: ${result.restored_rules_count || 0} rules restored`);
@@ -501,7 +509,7 @@ const RestorePage: React.FC = () => {
                         id="createNewNSGs"
                         checked={restoreScope.createNewNSGs}
                         onChange={(e) => setRestoreScope(prev => ({ 
-                          ...prev, 
+                          ...prev,
                           createNewNSGs: e.target.checked,
                           newNSGNames: e.target.checked ? [] : prev.newNSGNames
                         }))}
@@ -758,6 +766,12 @@ const RestorePage: React.FC = () => {
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
+                          if (!file.name.toLowerCase().endsWith('.csv')) {
+                            toast.error('Invalid file type. Please upload a CSV file.');
+                            e.target.value = '';
+                            setRestoreConfig(prev => ({ ...prev, csvFile: null }));
+                            return;
+                          }
                           setRestoreConfig(prev => ({ ...prev, csvFile: file }));
                         }
                       }}
