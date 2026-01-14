@@ -258,7 +258,8 @@ async def get_dashboard(
             },
             "resources": {
                 "vms": filtered_vms,
-                "storage_accounts": filtered_storage
+                "storage_accounts": filtered_storage,
+                "nsgs": filtered_nsgs
             },
             "metrics": {
                 "live_connections": 0, 
