@@ -94,11 +94,16 @@ async def init_db():
         raise
 
 
+from fastapi import HTTPException
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Dependency to get database session"""
     async with AsyncSessionLocal() as session:
         try:
             yield session
+        except HTTPException:
+            await session.rollback()
+            raise
         except Exception as e:
             await session.rollback()
             logger.error(f"Database session error: {e}")

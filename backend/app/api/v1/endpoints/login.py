@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -11,6 +12,8 @@ from app.core.config import settings
 from app.models.user import User
 from app.schemas.token import Token
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 @router.post("/access-token", response_model=Token)
@@ -23,15 +26,24 @@ async def login_access_token(
     """
     # Find user by email (username field in form is used for email)
     # The form_data.username comes from the login form
+    logger.info(f"Login attempt for user: {form_data.username}")
+    
     result = await db.execute(select(User).where(User.email == form_data.username))
     user = result.scalar_one_or_none()
     
     if not user:
+        logger.info(f"User not found by email: {form_data.username}. Trying username lookup.")
         # Try username if email failed
         result = await db.execute(select(User).where(User.username == form_data.username))
         user = result.scalar_one_or_none()
-        
+    
+    if user:
+        logger.info(f"User found: {user.username} (ID: {user.id})")
+    else:
+        logger.warning(f"User not found: {form_data.username}")
+
     if not user or not security.verify_password(form_data.password, user.hashed_password):
+        logger.warning(f"Authentication failed for user: {form_data.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
