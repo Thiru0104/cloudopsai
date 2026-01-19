@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '../components/ui/card';
 import { 
   Shield, 
@@ -118,9 +119,40 @@ interface SubscriptionMetrics {
   rule_count: number;
 }
 
+const REGION_COORDINATES: Record<string, { top: string; left: string }> = {
+  'eastus': { top: '35%', left: '25%' },
+  'eastus2': { top: '34%', left: '26%' },
+  'westus': { top: '35%', left: '18%' },
+  'westus2': { top: '33%', left: '18%' },
+  'centralus': { top: '34%', left: '22%' },
+  'northcentralus': { top: '32%', left: '23%' },
+  'southcentralus': { top: '38%', left: '22%' },
+  'northeurope': { top: '25%', left: '48%' },
+  'westeurope': { top: '28%', left: '48%' },
+  'uksouth': { top: '26%', left: '46%' },
+  'ukwest': { top: '25%', left: '45%' },
+  'francecentral': { top: '29%', left: '47%' },
+  'germanywestcentral': { top: '27%', left: '49%' },
+  'switzerlandnorth': { top: '28%', left: '49%' },
+  'norwayeast': { top: '20%', left: '49%' },
+  'eastasia': { top: '45%', left: '80%' },
+  'southeastasia': { top: '55%', left: '78%' },
+  'australiaeast': { top: '80%', left: '88%' },
+  'australiasoutheast': { top: '82%', left: '86%' },
+  'japaneast': { top: '35%', left: '85%' },
+  'japanwest': { top: '37%', left: '84%' },
+  'centralindia': { top: '45%', left: '68%' },
+  'southindia': { top: '50%', left: '68%' },
+  'westindia': { top: '46%', left: '67%' },
+  'koreacentral': { top: '36%', left: '82%' },
+  'canadacentral': { top: '30%', left: '25%' },
+  'canadaeast': { top: '30%', left: '28%' },
+  'brazilsouth': { top: '70%', left: '32%' },
+  'southafricanorth': { top: '75%', left: '53%' },
+  'uaenorth': { top: '42%', left: '55%' },
+};
+
 const DashboardPage: React.FC = () => {
-  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
   
   // Filter States
   const [selectedSubscription, setSelectedSubscription] = useState<string>('All');
@@ -132,13 +164,9 @@ const DashboardPage: React.FC = () => {
   // Dropdown visibility states
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, [selectedSubscription, selectedRegion, selectedRG, selectedVM, selectedInterval]);
-
-  const fetchDashboardData = async () => {
-    try {
-      setLoading(true);
+  const { data: dashboardData, isLoading: loading } = useQuery({
+    queryKey: ['dashboard', selectedSubscription, selectedRegion, selectedRG, selectedVM, selectedInterval],
+    queryFn: async () => {
       const params: any = {};
       if (selectedSubscription !== 'All') params.subscription_id = selectedSubscription;
       if (selectedRegion !== 'All') params.region = selectedRegion;
@@ -146,14 +174,11 @@ const DashboardPage: React.FC = () => {
       if (selectedVM !== 'All') params.vm_name = selectedVM;
       params.time_range = selectedInterval;
 
-      const data = await apiClient.get('/api/v1/dashboard', params);
-      setDashboardData(data);
-    } catch (e) {
-      console.error("Failed to fetch dashboard data", e);
-    } finally {
-      setLoading(false);
-    }
-  };
+      return await apiClient.get('/api/v1/dashboard', params);
+    },
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    refetchOnWindowFocus: false,
+  });
 
   const handleFilterChange = (type: string, value: string) => {
     switch (type) {
@@ -190,6 +215,41 @@ const DashboardPage: React.FC = () => {
 
   const vms = dashboardData?.resources?.vms || [];
   const storageAccounts = dashboardData?.resources?.storage_accounts || [];
+
+  const renderMapMarkers = (items: any[], color: string) => {
+    if (!items) return null;
+    
+    // Group by location
+    const locationCounts: Record<string, number> = {};
+    items.forEach(item => {
+        const loc = item.location?.toLowerCase().replace(/\s/g, '');
+        if (loc) {
+            locationCounts[loc] = (locationCounts[loc] || 0) + 1;
+        }
+    });
+
+    return Object.entries(locationCounts).map(([loc, count]) => {
+        const coords = REGION_COORDINATES[loc];
+        if (!coords) return null; 
+        
+        return (
+             <div 
+                key={loc}
+                className={`absolute h-3 w-3 rounded-full shadow-lg ring-2 ring-white cursor-pointer hover:scale-150 transition-transform group`}
+                style={{ 
+                    top: coords.top, 
+                    left: coords.left,
+                    backgroundColor: color
+                }} 
+                title={`${loc}: ${count}`}
+            >
+                <div className="hidden group-hover:block absolute -top-8 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white text-xs px-2 py-1 rounded shadow-lg whitespace-nowrap z-50">
+                    {loc}: {count}
+                </div>
+            </div>
+        );
+    });
+  };
 
   const FilterButton = ({ 
     label, 
@@ -405,9 +465,7 @@ const DashboardPage: React.FC = () => {
                   <span className="text-slate-400 text-sm">NSG Regions</span>
                </div>
                {/* Mock Map Markers - Green for NSGs */}
-               <div className="absolute top-1/3 left-1/4 h-3 w-3 bg-green-500 rounded-full shadow-lg ring-2 ring-white" title="East US"></div>
-               <div className="absolute top-1/2 left-1/2 h-3 w-3 bg-green-500 rounded-full shadow-lg ring-2 ring-white" title="West Europe"></div>
-               <div className="absolute top-1/3 left-3/4 h-3 w-3 bg-green-500 rounded-full shadow-lg ring-2 ring-white" title="Southeast Asia"></div>
+               {renderMapMarkers(dashboardData?.resources?.nsgs || [], '#22c55e')}
             </div>
           </Card>
 
@@ -421,10 +479,8 @@ const DashboardPage: React.FC = () => {
                   <MapIcon className="h-12 w-12 text-slate-300 mb-2" />
                   <span className="text-slate-400 text-sm">Interactive Map Placeholder</span>
                </div>
-               {/* Mock Map Markers */}
-               <div className="absolute top-1/3 left-1/3 h-3 w-3 bg-green-500 rounded-full shadow-lg ring-2 ring-white"></div>
-               <div className="absolute top-1/4 left-1/2 h-3 w-3 bg-green-500 rounded-full shadow-lg ring-2 ring-white"></div>
-               <div className="absolute top-1/2 left-3/4 h-3 w-3 bg-green-500 rounded-full shadow-lg ring-2 ring-white"></div>
+               {/* Map Markers */}
+               {renderMapMarkers(storageAccounts, '#4f46e5')}
             </div>
           </Card>
         </div>

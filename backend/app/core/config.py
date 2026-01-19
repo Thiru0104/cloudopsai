@@ -31,14 +31,15 @@ class Settings(BaseSettings):
     
     # Database
     DATABASE_URL: str
+    DB_ECHO: bool = False
     
     # Redis
     REDIS_URL: str = "redis://localhost:6379"
     
     # Azure Configuration
-    AZURE_TENANT_ID: str
-    AZURE_CLIENT_ID: str
-    AZURE_CLIENT_SECRET: str
+    AZURE_TENANT_ID: Optional[str] = None
+    AZURE_CLIENT_ID: Optional[str] = None
+    AZURE_CLIENT_SECRET: Optional[str] = None
     AZURE_SUBSCRIPTION_ID: str
     AZURE_KEY_VAULT_URL: str
     
@@ -56,6 +57,7 @@ class Settings(BaseSettings):
     # Azure Storage
     AZURE_STORAGE_CONNECTION_STRING: Optional[str] = None
     AZURE_STORAGE_CONTAINER_NAME: str = "cloudopsai-reports"
+    AZURE_STORAGE_ACCOUNT_NAME: Optional[str] = None
     
     # AI Models
     OPENAI_API_KEY: Optional[str] = None
@@ -124,4 +126,3 @@ def validate_settings():
 
 # Validate settings on import
 validate_settings()
-

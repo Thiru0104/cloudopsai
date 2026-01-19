@@ -695,10 +695,10 @@ const RestorePage: React.FC = () => {
                         onValueChange={(value) => setRestoreConfig(prev => ({ ...prev, containerName: value }))}
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder="Select container" />
+                          <SelectValue placeholder="Select container or use Default" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="nsg-backups">nsg-backups</SelectItem>
+                          <SelectItem value="">Default (from settings)</SelectItem>
                           {Array.isArray(restoreContainers) && restoreContainers.length > 0 ? (
                             restoreContainers.map((container: any) => {
                               console.log('Rendering container:', container);

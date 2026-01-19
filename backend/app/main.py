@@ -21,6 +21,10 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
+# Silence SQLAlchemy logs unless DB_ECHO is True
+if not settings.DB_ECHO:
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 # Create FastAPI application

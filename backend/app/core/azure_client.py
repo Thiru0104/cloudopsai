@@ -253,7 +253,8 @@ class AzureClient:
             
             # Store backup in Azure Blob Storage if available
             if self.storage_client:
-                container_client = self.storage_client.get_container_client("nsg-backups")
+                container_name = settings.AZURE_STORAGE_CONTAINER_NAME
+                container_client = self.storage_client.get_container_client(container_name)
                 blob_name = f"{resource_group_name}/{nsg_name}/{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
                 blob_client = container_client.get_blob_client(blob_name)
                 await blob_client.upload_blob(str(backup_data), overwrite=True)

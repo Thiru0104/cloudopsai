@@ -4,14 +4,14 @@ This guide deploys the FastAPI backend as an Azure Web App (Linux) using a Docke
 
 ## Prerequisites
 - Azure subscription and `az` CLI logged in (`az login`)
-- Resource group (example: `rg-nsg-tool-prod`)
+- Resource group (example: `pep-poc-cloudengineering-srikanth-01-rg`)
 - Azure Container Registry (ACR) or Docker Hub for image hosting
 - Optional: Azure Database for PostgreSQL Flexible Server, Azure Cache for Redis, Key Vault
 
 ## Container Build and Push
 
 1) Create ACR (optional, skip if using Docker Hub):
-- `az acr create -n <acr_name> -g rg-nsg-tool-prod --sku Basic`
+- `az acr create -n <acr_name> -g pep-poc-cloudengineering-srikanth-01-rg --sku Basic`
 - `az acr login -n <acr_name>`
 
 2) Build and push image:
@@ -22,14 +22,14 @@ This guide deploys the FastAPI backend as an Azure Web App (Linux) using a Docke
 
 ## Provision App Service (Linux) with Container
 
-- `az appservice plan create -g rg-nsg-tool-prod -n asp-nsg-tool-prod --is-linux --sku B1`
-- `az webapp create -g rg-nsg-tool-prod -p asp-nsg-tool-prod -n web-nsg-tool-prod --deployment-container-image-name <registry>/<repo>/nsg-tool-backend:prod`
+- `az appservice plan create -g pep-poc-cloudengineering-srikanth-01-rg -n asp-nsg-tool-prod --is-linux --sku B1`
+- `az webapp create -g pep-poc-cloudengineering-srikanth-01-rg -p asp-nsg-tool-prod -n web-nsg-tool-prod --deployment-container-image-name <registry>/<repo>/nsg-tool-backend:prod`
 
 If using ACR, grant pull permissions:
-- `az webapp config container set -g rg-nsg-tool-prod -n web-nsg-tool-prod --docker-custom-image-name <acr_name>.azurecr.io/<repo>/nsg-tool-backend:prod --docker-registry-server-url https://<acr_name>.azurecr.io`
-- `az webapp identity assign -g rg-nsg-tool-prod -n web-nsg-tool-prod`
+- `az webapp config container set -g pep-poc-cloudengineering-srikanth-01-rg -n web-nsg-tool-prod --docker-custom-image-name <acr_name>.azurecr.io/<repo>/nsg-tool-backend:prod --docker-registry-server-url https://<acr_name>.azurecr.io`
+- `az webapp identity assign -g pep-poc-cloudengineering-srikanth-01-rg -n web-nsg-tool-prod`
 - `az acr update -n <acr_name> --admin-enabled true`
-- `az webapp config container set -g rg-nsg-tool-prod -n web-nsg-tool-prod --docker-registry-server-user <acr_admin_user> --docker-registry-server-password <acr_admin_pwd>`
+- `az webapp config container set -g pep-poc-cloudengineering-srikanth-01-rg -n web-nsg-tool-prod --docker-registry-server-user <acr_admin_user> --docker-registry-server-password <acr_admin_pwd>`
 
 ## App Settings (Environment Variables)
 
@@ -59,7 +59,7 @@ For secrets, prefer Azure Key Vault + Managed Identity:
 
 - Enable Application Insights
 - Set logging level via `LOG_LEVEL=info`
-- Stream logs: `az webapp log tail -n web-nsg-tool-prod -g rg-nsg-tool-prod`
+- Stream logs: `az webapp log tail -n web-nsg-tool-prod -g pep-poc-cloudengineering-srikanth-01-rg`
 
 ## Networking and Security
 
@@ -80,7 +80,7 @@ For secrets, prefer Azure Key Vault + Managed Identity:
 
 ## Quick Non-Container Alternative (Oryx Build)
 
-- `az webapp up --runtime PYTHON:3.11 -n web-nsg-tool-prod -g rg-nsg-tool-prod -l <region> --sku B1`
+- `az webapp up --runtime PYTHON:3.11 -n web-nsg-tool-prod -g pep-poc-cloudengineering-srikanth-01-rg -l <region> --sku B1`
 - The platform builds from `backend/requirements.txt` and runs `gunicorn app.main:app` automatically
 - Note: container approach gives more control and repeatability
 

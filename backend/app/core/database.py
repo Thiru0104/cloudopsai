@@ -45,12 +45,12 @@ elif "postgresql+asyncpg" in sync_database_url:
 if "sqlite" in settings.DATABASE_URL:
     sync_engine = create_engine(
         sync_database_url,
-        echo=settings.DEBUG
+        echo=settings.DB_ECHO
     )
 else:
     sync_engine = create_engine(
         sync_database_url,
-        echo=settings.DEBUG,
+        echo=settings.DB_ECHO,
         pool_pre_ping=True,
         pool_recycle=300,
         pool_size=10,
@@ -82,7 +82,7 @@ async def init_db():
     """Initialize database connection and create tables"""
     try:
         # Import all models here to ensure they are registered
-        from app.models import user, nsg, agent, backup
+        from app.models import user, nsg, agent, backup, dashboard
         
         # Create tables for async engine only
         async with engine.begin() as conn:

@@ -1,8 +1,14 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import List, Dict, Any, Optional
 import logging
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, desc
+from datetime import datetime, timedelta
+
 from app.services.azure_service import AzureService
 from app.core.config import settings
+from app.core.database import get_db
+from app.models.dashboard import DashboardSnapshot
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -18,6 +24,7 @@ async def get_dashboard(
     resource_group: Optional[str] = Query(None, description="Filter by resource group"),
     vm_name: Optional[str] = Query(None, description="Filter by virtual machine name"),
     time_range: Optional[str] = Query("24h", description="Time range for metrics"),
+    db: AsyncSession = Depends(get_db),
     azure_service: AzureService = Depends(get_azure_service)
 ) -> Dict[str, Any]:
     """
@@ -27,6 +34,35 @@ async def get_dashboard(
     try:
         logger.info(f"Processing dashboard request (sub={subscription_id}, region={region}, rg={resource_group}, vm={vm_name})")
         
+        # Normalize filter values for cache key (None or "All" -> None)
+        c_sub = subscription_id if subscription_id and subscription_id != "All" else None
+        c_region = region if region and region != "All" else None
+        c_rg = resource_group if resource_group and resource_group != "All" else None
+        c_vm = vm_name if vm_name and vm_name != "All" else None
+        
+        # Check Cache
+        try:
+            stmt = select(DashboardSnapshot).where(
+                DashboardSnapshot.subscription_id == c_sub,
+                DashboardSnapshot.region == c_region,
+                DashboardSnapshot.resource_group == c_rg,
+                DashboardSnapshot.vm_name == c_vm,
+                DashboardSnapshot.time_range == time_range
+            ).order_by(desc(DashboardSnapshot.timestamp))
+            
+            result = await db.execute(stmt)
+            cached_snapshot = result.scalars().first()
+            
+            if cached_snapshot:
+                # Cache validity: 10 minutes
+                if datetime.utcnow() - cached_snapshot.timestamp < timedelta(minutes=10):
+                    logger.info("Serving dashboard data from cache")
+                    return cached_snapshot.data
+                else:
+                    logger.info("Cache expired, fetching fresh data")
+        except Exception as e:
+            logger.error(f"Cache lookup failed: {e}")
+
         # Use real Azure data
         try:
             all_subscriptions = await azure_service.list_subscriptions()
@@ -294,6 +330,24 @@ async def get_dashboard(
         }
         
         logger.info("Dashboard data prepared successfully")
+        
+        # Save to Cache
+        try:
+            new_snapshot = DashboardSnapshot(
+                data=response,
+                subscription_id=c_sub,
+                region=c_region,
+                resource_group=c_rg,
+                vm_name=c_vm,
+                time_range=time_range,
+                timestamp=datetime.utcnow()
+            )
+            db.add(new_snapshot)
+            await db.commit()
+            logger.info("Dashboard data cached successfully")
+        except Exception as e:
+            logger.error(f"Failed to save dashboard cache: {e}")
+
         return response
         
     except Exception as e:

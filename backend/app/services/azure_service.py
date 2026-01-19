@@ -867,6 +867,9 @@ class AzureService:
                           storage_account_name: Optional[str] = None) -> Optional[str]:
         """Create backup of NSG configuration to blob storage in JSON and/or CSV format"""
         
+        # Ensure container_name is set, falling back to settings or default
+        container_name = container_name or settings.AZURE_STORAGE_CONTAINER_NAME or "nsg-backups"
+        
         # Determine which blob service client to use
         client_to_use = self.blob_service_client
         
@@ -1168,6 +1171,9 @@ class AzureService:
     async def export_to_csv(self, nsg_data: Dict, filename: str,
                           container_name: str = "nsg-exports") -> Optional[str]:
         """Export NSG configuration to CSV format"""
+        # Ensure container_name is set, falling back to settings or default
+        container_name = container_name or settings.AZURE_STORAGE_CONTAINER_NAME or "nsg-exports"
+
         if not self.blob_service_client:
             logger.error("Blob service client not available")
             return None
@@ -1356,6 +1362,9 @@ class AzureService:
 
     def upload_blob_sync(self, content: str, filename: str, container_name: str = "nsg-backups", content_type: str = "text/plain") -> Optional[str]:
         """Upload content to blob storage (synchronous version)"""
+        # Ensure container_name is set, falling back to settings or default
+        container_name = container_name or settings.AZURE_STORAGE_CONTAINER_NAME or "nsg-backups"
+
         if not self.blob_service_client:
             logger.error("Blob service client not available")
             return None
@@ -1486,7 +1495,12 @@ class AzureService:
             
             # Store snapshot in blob storage
             if self.blob_service_client:
-                container_name = "nsg-snapshots"
+                container_name = settings.AZURE_STORAGE_CONTAINER_NAME
+                # Use a specific folder for snapshots within the main container
+                # or use the main container directly. 
+                # User requested "container information" to be respected, so we use the configured one.
+                # If separation is needed, we can use a prefix in blob_name.
+                
                 container_client = self.blob_service_client.get_container_client(container_name)
                 try:
                     container_client.get_container_properties()
@@ -1571,12 +1585,17 @@ class AzureService:
 
     async def list_blobs(self, container_name: str, storage_account_name: Optional[str] = None) -> List[Dict]:
         """List all blobs in a container"""
+        # Ensure container_name is set, falling back to settings or default
+        container_name = container_name or settings.AZURE_STORAGE_CONTAINER_NAME or "nsg-backups"
         return await asyncio.to_thread(self._list_blobs_sync, container_name, storage_account_name)
 
     def _list_blobs_sync(self, container_name: str, storage_account_name: Optional[str] = None) -> List[Dict]:
         client = self.blob_service_client
         if storage_account_name:
             client = self.get_blob_service_client_for_account(storage_account_name)
+
+        # Ensure container_name is set, falling back to settings or default
+        container_name = container_name or settings.AZURE_STORAGE_CONTAINER_NAME or "nsg-backups"
 
         if not client:
             logger.error("Blob service client not available")
@@ -1599,12 +1618,17 @@ class AzureService:
 
     async def read_blob_content(self, container_name: str, blob_name: str, storage_account_name: Optional[str] = None) -> str:
         """Read content of a blob"""
+        # Ensure container_name is set, falling back to settings or default
+        container_name = container_name or settings.AZURE_STORAGE_CONTAINER_NAME or "nsg-backups"
         return await asyncio.to_thread(self._read_blob_content_sync, container_name, blob_name, storage_account_name)
 
     def _read_blob_content_sync(self, container_name: str, blob_name: str, storage_account_name: Optional[str] = None) -> str:
         client = self.blob_service_client
         if storage_account_name:
             client = self.get_blob_service_client_for_account(storage_account_name)
+
+        # Ensure container_name is set, falling back to settings or default
+        container_name = container_name or settings.AZURE_STORAGE_CONTAINER_NAME or "nsg-backups"
 
         if not client:
             raise Exception("Blob service client not available")

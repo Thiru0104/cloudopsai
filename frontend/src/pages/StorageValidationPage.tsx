@@ -4,6 +4,7 @@ import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Alert, AlertDescription } from '../components/ui/alert';
+import { apiClient, apiConfig } from '../config/api';
 import {
     Search,
     Database,
@@ -82,9 +83,7 @@ const StorageValidationPage: React.FC = () => {
 
     const fetchSubscriptions = async () => {
         try {
-            const response = await fetch('http://localhost:8007/api/v1/subscriptions');
-            if (!response.ok) throw new Error('Failed to fetch subscriptions');
-            const data = await response.json();
+            const data = await apiClient.get(apiConfig.endpoints.subscriptions);
             // Handle both array and object response formats
             const subs = data.subscriptions || (Array.isArray(data) ? data : []);
             setSubscriptions(subs);
@@ -106,9 +105,7 @@ const StorageValidationPage: React.FC = () => {
         setRecommendations(null);
 
         try {
-            const response = await fetch(`http://localhost:8007/api/v1/storage-validation/validation?subscription_id=${selectedSubscription}`);
-            if (!response.ok) throw new Error('Failed to run validation');
-            const data = await response.json();
+            const data = await apiClient.get('/api/v1/storage-validation/validation', { subscription_id: selectedSubscription });
             setValidationResult(data);
         } catch (err: any) {
             console.error('Error running validation:', err);
@@ -125,16 +122,7 @@ const StorageValidationPage: React.FC = () => {
         setError(null);
 
         try {
-            const response = await fetch('http://localhost:8007/api/v1/storage-validation/validation/recommendations', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(validationResult),
-            });
-
-            if (!response.ok) throw new Error('Failed to generate recommendations');
-            const data = await response.json();
+            const data = await apiClient.post('/api/v1/storage-validation/validation/recommendations', validationResult);
             setRecommendations(data);
         } catch (err: any) {
             console.error('Error generating recommendations:', err);
@@ -187,24 +175,24 @@ const StorageValidationPage: React.FC = () => {
                 <p>Generated on ${new Date().toLocaleString()}</p>
                 
                 <h2>Summary</h2>
-                <p>Total Storage Accounts: ${validationData?.summary.total_storage_accounts || 0}</p>
-                <p>Total Containers: ${validationData?.summary.total_containers || 0}</p>
-                <p>Total Size: ${(validationData?.summary.total_size_gb || 0).toFixed(2)} GB</p>
+                <p>Total Storage Accounts: ${validationResult?.summary.total_accounts || 0}</p>
+                <p>Total Containers: ${validationResult?.summary.total_containers || 0}</p>
+                <p>Total Size: ${(validationResult?.summary.total_size_gb || 0).toFixed(2)} GB</p>
 
                 <h2>Resource Details</h2>
                 <h3>Large Accounts (>100MB)</h3>
-                ${validationData?.details.large_accounts && validationData.details.large_accounts.length > 0 ? `
+                ${validationResult?.details.large_accounts && validationResult.details.large_accounts.length > 0 ? `
                     <ul>
-                        ${validationData.details.large_accounts.map(acc => `
+                        ${validationResult.details.large_accounts.map(acc => `
                             <li>${acc.name} (${acc.size_gb.toFixed(4)} GB)</li>
                         `).join('')}
                     </ul>
                 ` : '<p>No large accounts found.</p>'}
 
                 <h3>Large Containers (>100MB)</h3>
-                ${validationData?.details.large_containers && validationData.details.large_containers.length > 0 ? `
+                ${validationResult?.details.large_containers && validationResult.details.large_containers.length > 0 ? `
                     <ul>
-                        ${validationData.details.large_containers.map(cont => `
+                        ${validationResult.details.large_containers.map(cont => `
                             <li>${cont.container} (${cont.size_gb.toFixed(4)} GB)</li>
                         `).join('')}
                     </ul>
