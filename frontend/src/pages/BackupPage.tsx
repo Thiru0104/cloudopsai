@@ -24,8 +24,8 @@ const BackupPage: React.FC = () => {
     resourceType: 'nsg',
     selectedNSGs: [] as string[],
     selectedASGs: [] as string[],
-    storageAccount: 'thirustorage001',
-    containerName: 'nsg-backups',
+    storageAccount: '',
+    containerName: '',
     backupType: 'immediate',
     backupFormat: 'json',
     description: '',
@@ -91,6 +91,31 @@ const BackupPage: React.FC = () => {
     }
   });
 
+  // Fetch system info for defaults
+  const { data: systemData } = useQuery({
+    queryKey: ['system-info'],
+    queryFn: async () => {
+      try {
+        const response = await fetch('/api/v1/system/info');
+        if (!response.ok) throw new Error('Failed to fetch system info');
+        return await response.json();
+      } catch (error) {
+        console.error('Error fetching system info:', error);
+        return null;
+      }
+    }
+  });
+
+  // Set default storage account from system info
+  useEffect(() => {
+    if (systemData?.azure_config?.storage_account_name && !backupConfig.storageAccount) {
+      setBackupConfig(prev => ({
+        ...prev,
+        storageAccount: systemData.azure_config.storage_account_name
+      }));
+    }
+  }, [systemData, backupConfig.storageAccount]);
+
   // Export mutation for enhanced CSV export
   const exportMutation = useMutation({
     mutationFn: async (format: 'csv' | 'excel') => {
@@ -137,7 +162,8 @@ const BackupPage: React.FC = () => {
       });
       
       if (!response.ok) {
-        throw new Error('Export failed');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Export failed');
       }
       
       // Handle file download
@@ -195,7 +221,8 @@ const BackupPage: React.FC = () => {
       });
       
       if (!response.ok) {
-        throw new Error('Failed to create backup');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Failed to create backup');
       }
       
       return response.json();
@@ -203,23 +230,23 @@ const BackupPage: React.FC = () => {
     onSuccess: (data) => {
       const fileExtension = backupConfig.backupFormat === 'csv' ? 'csv' : 'json';
       const fileName = data.backup_file || `backup_nsg_${new Date().toISOString().slice(0,19).replace(/[-:]/g, '').replace('T', '_')}.${fileExtension}`;
-      toast.success(`Backup created successfully! File: ${fileName}`);
+      toast.success(`Backup saved successfully to ${backupConfig.storageAccount}/${backupConfig.containerName}`);
       // Reset form
-      setBackupConfig({
-        backupName: '',
-        resourceType: 'nsg',
-        selectedNSGs: [],
-        selectedASGs: [],
-        storageAccount: 'thirustorage001',
-        containerName: 'nsg-backups',
-        backupType: 'immediate',
-        backupFormat: 'json',
-        description: '',
-        scheduledDate: '',
-        scheduledTime: '',
-        frequency: 'once',
-        timezone: 'UTC'
-      });
+        setBackupConfig({
+          backupName: '',
+          resourceType: 'nsg',
+          selectedNSGs: [],
+          selectedASGs: [],
+          storageAccount: '',
+          containerName: '',
+          backupType: 'immediate',
+          backupFormat: 'json',
+          description: '',
+          scheduledDate: '',
+          scheduledTime: '',
+          frequency: 'once',
+          timezone: 'UTC'
+        });
     },
     onError: (error: any) => {
       toast.error('Failed to create backup: ' + error.message);
@@ -525,22 +552,12 @@ const BackupPage: React.FC = () => {
                     <Label htmlFor="storageAccount" className="text-sm font-medium text-slate-700 mb-2 block">
                       Storage Account
                     </Label>
-                    <Select
+                    <Input
+                      id="storageAccount"
                       value={backupConfig.storageAccount}
-                      onValueChange={(value) => setBackupConfig(prev => ({ ...prev, storageAccount: value }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="thirustorage001">thirustorage001</SelectItem>
-                        {storageData?.storage_accounts?.map((account: any) => (
-                          <SelectItem key={account.name} value={account.name}>
-                            {account.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      onChange={(e) => setBackupConfig(prev => ({ ...prev, storageAccount: e.target.value }))}
+                      placeholder="Enter storage account name"
+                    />
                   </div>
 
                   <div>

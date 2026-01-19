@@ -22,6 +22,279 @@ from app.schemas.agent import (
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+# System and General Endpoints (Must be defined before dynamic routes)
+
+@router.get("/health")
+async def agents_health_check():
+    """Health check for agent system"""
+    try:
+        # Get agent statistics
+        stats = await agent_service.get_agent_stats()
+        
+        # Check AI service availability
+        available_models = await ai_service.get_available_models()
+        
+        return {
+            "status": "healthy",
+            "timestamp": datetime.utcnow().isoformat(),
+            "total_agents": stats.get("total_agents", 0),
+            "available_models": len(available_models),
+            "services": {
+                "database": "connected",
+                "ai_service": "available",
+                "agent_service": "running"
+            }
+        }
+    except Exception as e:
+        logger.error(f"Agent health check failed: {str(e)}")
+        return {
+            "status": "unhealthy",
+            "timestamp": datetime.utcnow().isoformat(),
+            "error": str(e)
+        }
+
+@router.get("/stats", response_model=AgentStats)
+async def get_agent_statistics():
+    """Get agent statistics and metrics"""
+    try:
+        stats = await agent_service.get_agent_stats()
+        return AgentStats(**stats)
+    except Exception as e:
+        logger.error(f"Error getting agent statistics: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.get("/models", response_model=AIModelsResponse)
+async def get_available_models():
+    """Get available AI models"""
+    try:
+        models = await ai_service.get_available_models()
+        # Find a suitable default model (e.g., Azure GPT-4 or OpenAI GPT-4)
+        default_model = "azure-gpt-4" # Fallback
+        for model in models:
+            if "gpt-4" in model.name:
+                default_model = model.name
+                break
+                
+        return AIModelsResponse(models=models, default_model_id=default_model)
+    except Exception as e:
+        logger.error(f"Error getting available models: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.post("/analyze-nsg", response_model=NSGAnalysisResponse)
+async def analyze_nsg(
+    analysis_request: NSGAnalysisRequest
+):
+    """Analyze NSG configuration using AI"""
+    try:
+        result = await agent_service.analyze_nsg(request=analysis_request)
+        return NSGAnalysisResponse(**result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error analyzing NSG: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/bulk-operation", response_model=BulkOperationResponse)
+async def bulk_agent_operation(
+    operation: BulkAgentOperation
+):
+    """Perform bulk operations on multiple agents"""
+    try:
+        results = []
+        successful = 0
+        failed = 0
+        
+        for agent_id in operation.agent_ids:
+            try:
+                if operation.operation == "start":
+                    execution_id = await agent_service.start_agent(
+                        agent_id=agent_id,
+                        input_data=operation.parameters
+                    )
+                    results.append({
+                        "agent_id": agent_id,
+                        "status": "success",
+                        "execution_id": execution_id
+                    })
+                    successful += 1
+                    
+                elif operation.operation == "stop":
+                    success = await agent_service.stop_agent(agent_id=agent_id)
+                    results.append({
+                        "agent_id": agent_id,
+                        "status": "success" if success else "failed",
+                        "message": "Stopped" if success else "Agent not found"
+                    })
+                    if success:
+                        successful += 1
+                    else:
+                        failed += 1
+                        
+                elif operation.operation == "delete":
+                    success = await agent_service.delete_agent(agent_id=agent_id)
+                    results.append({
+                        "agent_id": agent_id,
+                        "status": "success" if success else "failed",
+                        "message": "Deleted" if success else "Agent not found"
+                    })
+                    if success:
+                        successful += 1
+                    else:
+                        failed += 1
+                        
+                else:
+                    results.append({
+                        "agent_id": agent_id,
+                        "status": "failed",
+                        "message": f"Unsupported operation: {operation.operation}"
+                    })
+                    failed += 1
+                    
+            except Exception as e:
+                results.append({
+                    "agent_id": agent_id,
+                    "status": "failed",
+                    "message": str(e)
+                })
+                failed += 1
+        
+        return BulkOperationResponse(
+            operation=operation.operation,
+            total_agents=len(operation.agent_ids),
+            successful=successful,
+            failed=failed,
+            results=results
+        )
+        
+    except Exception as e:
+        logger.error(f"Error performing bulk operation: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Remediation Plan Endpoints
+
+@router.get("/remediation-plans", response_model=List[RemediationPlanResponse])
+async def get_remediation_plans(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    agent_id: Optional[int] = None,
+    nsg_id: Optional[int] = None,
+    status: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Get remediation plans with filters"""
+    try:
+        query = select(RemediationPlan)
+        
+        if agent_id:
+            query = query.where(RemediationPlan.agent_id == agent_id)
+        if nsg_id:
+            query = query.where(RemediationPlan.nsg_id == nsg_id)
+        if status:
+            query = query.where(RemediationPlan.status == status)
+        
+        query = query.order_by(RemediationPlan.created_at.desc()).offset(skip).limit(limit)
+        result = await db.execute(query)
+        plans = result.scalars().all()
+        return plans
+    except Exception as e:
+        logger.error(f"Error getting remediation plans: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.get("/remediation-plans/{plan_id}", response_model=RemediationPlanResponse)
+async def get_remediation_plan(
+    plan_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """Get remediation plan by ID"""
+    try:
+        query = select(RemediationPlan).where(RemediationPlan.id == plan_id)
+        result = await db.execute(query)
+        plan = result.scalar_one_or_none()
+        if not plan:
+            raise HTTPException(status_code=404, detail="Remediation plan not found")
+        return plan
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting remediation plan {plan_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    finally:
+        db.close()
+
+@router.put("/remediation-plans/{plan_id}", response_model=RemediationPlanResponse)
+async def update_remediation_plan(
+    plan_id: int,
+    plan_data: RemediationPlanUpdate
+):
+    """Update remediation plan"""
+    db = get_sync_db()
+    try:
+        plan = db.query(RemediationPlan).filter(RemediationPlan.id == plan_id).first()
+        if not plan:
+            raise HTTPException(status_code=404, detail="Remediation plan not found")
+        
+        update_data = plan_data.dict(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(plan, field, value)
+        
+        plan.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(plan)
+        
+        return plan
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating remediation plan {plan_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@router.post("/remediation-plans/{plan_id}/approve")
+async def approve_remediation_plan(
+    plan_id: int
+):
+    """Approve remediation plan for execution"""
+    db = get_sync_db()
+    try:
+        plan = db.query(RemediationPlan).filter(RemediationPlan.id == plan_id).first()
+        if not plan:
+            raise HTTPException(status_code=404, detail="Remediation plan not found")
+        
+        plan.is_approved = True
+        plan.approved_by = "system"  # TODO: Get from authentication
+        plan.approved_at = datetime.utcnow()
+        plan.status = "approved"
+        
+        db.commit()
+        
+        return {"message": "Remediation plan approved successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error approving remediation plan {plan_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@router.get("/executions/{execution_id}", response_model=AgentExecutionResponse)
+async def get_execution_details(
+    execution_id: str
+):
+    """Get execution details by execution ID"""
+    try:
+        execution = await agent_service.get_agent_execution(
+            execution_id=execution_id
+        )
+        if not execution:
+            raise HTTPException(status_code=404, detail="Execution not found")
+        return execution
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting execution {execution_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 # Agent Management Endpoints
 
 @router.get("", response_model=List[AgentResponse])
@@ -212,284 +485,3 @@ async def get_agent_executions(
     except Exception as e:
         logger.error(f"Error getting executions for agent {agent_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
-
-@router.get("/executions/{execution_id}", response_model=AgentExecutionResponse)
-async def get_execution_details(
-    execution_id: str
-):
-    """Get execution details by execution ID"""
-    try:
-        execution = await agent_service.get_agent_execution(
-            execution_id=execution_id
-        )
-        if not execution:
-            raise HTTPException(status_code=404, detail="Execution not found")
-        return execution
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting execution {execution_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-# AI Models Endpoint
-
-@router.get("/models", response_model=AIModelsResponse)
-async def get_available_models():
-    """Get available AI models"""
-    try:
-        models = await ai_service.get_available_models()
-        # Find a suitable default model (e.g., Azure GPT-4 or OpenAI GPT-4)
-        default_model = "azure-gpt-4" # Fallback
-        for model in models:
-            if "gpt-4" in model.name:
-                default_model = model.name
-                break
-                
-        return AIModelsResponse(models=models, default_model_id=default_model)
-    except Exception as e:
-        logger.error(f"Error getting available models: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-# NSG Analysis Endpoints
-
-@router.post("/analyze-nsg", response_model=NSGAnalysisResponse)
-async def analyze_nsg(
-    analysis_request: NSGAnalysisRequest
-):
-    """Analyze NSG configuration using AI"""
-    try:
-        result = await agent_service.analyze_nsg(request=analysis_request)
-        return NSGAnalysisResponse(**result)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Error analyzing NSG: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Remediation Plan Endpoints
-
-@router.get("/remediation-plans", response_model=List[RemediationPlanResponse])
-async def get_remediation_plans(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
-    agent_id: Optional[int] = None,
-    nsg_id: Optional[int] = None,
-    status: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
-):
-    """Get remediation plans with filters"""
-    try:
-        query = select(RemediationPlan)
-        
-        if agent_id:
-            query = query.where(RemediationPlan.agent_id == agent_id)
-        if nsg_id:
-            query = query.where(RemediationPlan.nsg_id == nsg_id)
-        if status:
-            query = query.where(RemediationPlan.status == status)
-        
-        query = query.order_by(RemediationPlan.created_at.desc()).offset(skip).limit(limit)
-        result = await db.execute(query)
-        plans = result.scalars().all()
-        return plans
-    except Exception as e:
-        logger.error(f"Error getting remediation plans: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-@router.get("/remediation-plans/{plan_id}", response_model=RemediationPlanResponse)
-async def get_remediation_plan(
-    plan_id: int,
-    db: AsyncSession = Depends(get_db)
-):
-    """Get remediation plan by ID"""
-    try:
-        query = select(RemediationPlan).where(RemediationPlan.id == plan_id)
-        result = await db.execute(query)
-        plan = result.scalar_one_or_none()
-        if not plan:
-            raise HTTPException(status_code=404, detail="Remediation plan not found")
-        return plan
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting remediation plan {plan_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-    finally:
-        db.close()
-
-@router.put("/remediation-plans/{plan_id}", response_model=RemediationPlanResponse)
-async def update_remediation_plan(
-    plan_id: int,
-    plan_data: RemediationPlanUpdate
-):
-    """Update remediation plan"""
-    db = get_sync_db()
-    try:
-        plan = db.query(RemediationPlan).filter(RemediationPlan.id == plan_id).first()
-        if not plan:
-            raise HTTPException(status_code=404, detail="Remediation plan not found")
-        
-        update_data = plan_data.dict(exclude_unset=True)
-        for field, value in update_data.items():
-            setattr(plan, field, value)
-        
-        plan.updated_at = datetime.utcnow()
-        db.commit()
-        db.refresh(plan)
-        
-        return plan
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error updating remediation plan {plan_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db.close()
-
-@router.post("/remediation-plans/{plan_id}/approve")
-async def approve_remediation_plan(
-    plan_id: int
-):
-    """Approve remediation plan for execution"""
-    db = get_sync_db()
-    try:
-        plan = db.query(RemediationPlan).filter(RemediationPlan.id == plan_id).first()
-        if not plan:
-            raise HTTPException(status_code=404, detail="Remediation plan not found")
-        
-        plan.is_approved = True
-        plan.approved_by = "system"  # TODO: Get from authentication
-        plan.approved_at = datetime.utcnow()
-        plan.status = "approved"
-        
-        db.commit()
-        
-        return {"message": "Remediation plan approved successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error approving remediation plan {plan_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db.close()
-
-# Statistics and Monitoring
-
-@router.get("/stats", response_model=AgentStats)
-async def get_agent_statistics():
-    """Get agent statistics and metrics"""
-    try:
-        stats = await agent_service.get_agent_stats()
-        return AgentStats(**stats)
-    except Exception as e:
-        logger.error(f"Error getting agent statistics: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-# Bulk Operations
-
-@router.post("/bulk-operation", response_model=BulkOperationResponse)
-async def bulk_agent_operation(
-    operation: BulkAgentOperation
-):
-    """Perform bulk operations on multiple agents"""
-    try:
-        results = []
-        successful = 0
-        failed = 0
-        
-        for agent_id in operation.agent_ids:
-            try:
-                if operation.operation == "start":
-                    execution_id = await agent_service.start_agent(
-                        agent_id=agent_id,
-                        input_data=operation.parameters
-                    )
-                    results.append({
-                        "agent_id": agent_id,
-                        "status": "success",
-                        "execution_id": execution_id
-                    })
-                    successful += 1
-                    
-                elif operation.operation == "stop":
-                    success = await agent_service.stop_agent(agent_id=agent_id)
-                    results.append({
-                        "agent_id": agent_id,
-                        "status": "success" if success else "failed",
-                        "message": "Stopped" if success else "Agent not found"
-                    })
-                    if success:
-                        successful += 1
-                    else:
-                        failed += 1
-                        
-                elif operation.operation == "delete":
-                    success = await agent_service.delete_agent(agent_id=agent_id)
-                    results.append({
-                        "agent_id": agent_id,
-                        "status": "success" if success else "failed",
-                        "message": "Deleted" if success else "Agent not found"
-                    })
-                    if success:
-                        successful += 1
-                    else:
-                        failed += 1
-                        
-                else:
-                    results.append({
-                        "agent_id": agent_id,
-                        "status": "failed",
-                        "message": f"Unsupported operation: {operation.operation}"
-                    })
-                    failed += 1
-                    
-            except Exception as e:
-                results.append({
-                    "agent_id": agent_id,
-                    "status": "failed",
-                    "message": str(e)
-                })
-                failed += 1
-        
-        return BulkOperationResponse(
-            operation=operation.operation,
-            total_agents=len(operation.agent_ids),
-            successful=successful,
-            failed=failed,
-            results=results
-        )
-        
-    except Exception as e:
-        logger.error(f"Error performing bulk operation: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Health Check for Agents
-
-@router.get("/health")
-async def agents_health_check():
-    """Health check for agent system"""
-    try:
-        # Get agent statistics
-        stats = await agent_service.get_agent_stats()
-        
-        # Check AI service availability
-        available_models = await ai_service.get_available_models()
-        
-        return {
-            "status": "healthy",
-            "timestamp": datetime.utcnow().isoformat(),
-            "total_agents": stats.get("total_agents", 0),
-            "available_models": len(available_models),
-            "services": {
-                "database": "connected",
-                "ai_service": "available",
-                "agent_service": "running"
-            }
-        }
-    except Exception as e:
-        logger.error(f"Agent health check failed: {str(e)}")
-        return {
-            "status": "unhealthy",
-            "timestamp": datetime.utcnow().isoformat(),
-            "error": str(e)
-        }

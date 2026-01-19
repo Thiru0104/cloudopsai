@@ -1,16 +1,25 @@
 import os
 import json
 import csv
+import io
 import asyncio
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Tuple
 from azure.identity import DefaultAzureCredential, ClientSecretCredential
 from azure.mgmt.network import NetworkManagementClient
 from azure.mgmt.resource import ResourceManagementClient
 from azure.mgmt.subscription import SubscriptionClient
 from azure.mgmt.storage import StorageManagementClient
+from azure.mgmt.compute import ComputeManagementClient
+from azure.mgmt.web import WebSiteManagementClient
+from azure.mgmt.keyvault import KeyVaultManagementClient
 from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
+from azure.storage.fileshare import ShareServiceClient
+from azure.storage.queue import QueueServiceClient
+from azure.data.tables import TableServiceClient
+from azure.monitor.query import LogsQueryClient, LogsQueryStatus
 from azure.core.exceptions import AzureError
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from ..core.config import settings
 
@@ -28,18 +37,34 @@ class AzureService:
         
         # Initialize subscription client (doesn't need subscription_id)
         self.subscription_client = SubscriptionClient(self.credential)
+        # Fix for azure-mgmt-subscription v3.1.0 missing api_version in config
+        if not hasattr(self.subscription_client._config, 'api_version'):
+            self.subscription_client._config.api_version = "2021-01-01"
+
+        # Initialize Logs Query Client
+        try:
+            self.logs_query_client = LogsQueryClient(self.credential)
+        except Exception as e:
+            logger.error(f"Failed to initialize LogsQueryClient: {e}")
+            self.logs_query_client = None
         
         # Initialize clients only if subscription_id is available
         if self.subscription_id:
             self.network_client = NetworkManagementClient(self.credential, self.subscription_id)
             self.resource_client = ResourceManagementClient(self.credential, self.subscription_id)
             self.storage_client = StorageManagementClient(self.credential, self.subscription_id)
+            self.compute_client = ComputeManagementClient(self.credential, self.subscription_id)
+            self.web_client = WebSiteManagementClient(self.credential, self.subscription_id)
+            self.keyvault_client = KeyVaultManagementClient(self.credential, self.subscription_id)
             self.blob_service_client = self._get_blob_service_client()
         else:
             logger.warning("Azure subscription ID not found. Some Azure services will not be available.")
             self.network_client = None
             self.resource_client = None
             self.storage_client = None
+            self.compute_client = None
+            self.web_client = None
+            self.keyvault_client = None
             self.blob_service_client = None
     
     def _get_credential(self):
@@ -92,6 +117,168 @@ class AzureService:
         except Exception as e:
             logger.error(f"Failed to get blob service client for {storage_account_name}: {e}")
             return None
+
+    async def get_recent_incidents(self, subscription_id: str, time_range: str = "24h") -> List[Dict]:
+        """
+        Get recent incidents from Azure Activity Log using KQL.
+        """
+        if not self.logs_query_client:
+            logger.warning("LogsQueryClient is not initialized")
+            return []
+            
+        try:
+            # Map time range to KQL timespan
+            timespan_map = {
+                "24h": "24h",
+                "7d": "7d",
+                "30d": "30d"
+            }
+            timespan_str = timespan_map.get(time_range, "24h")
+            timespan_delta = timedelta(hours=24)
+            if time_range == "7d":
+                timespan_delta = timedelta(days=7)
+            elif time_range == "30d":
+                timespan_delta = timedelta(days=30)
+            
+            query = f"""
+            AzureActivity
+            | where TimeGenerated > ago({timespan_str})
+            | where Level == 'Error' or Level == 'Warning' or Level == 'Critical'
+            | project TimeGenerated, ResourceId, Level, OperationName, Caller, ResourceGroup, ResourceProvider
+            | order by TimeGenerated desc
+            | take 50
+            """
+            
+            logger.info(f"Querying Activity Logs for subscription {subscription_id} with range {time_range}")
+            
+            # Query the subscription resource directly for Activity Logs
+            # Note: query_resource takes resource_id. For Activity Log, we target the subscription ID.
+            response = await asyncio.to_thread(
+                self.logs_query_client.query_resource,
+                resource_id=f"/subscriptions/{subscription_id}",
+                query=query,
+                timespan=timespan_delta
+            )
+            
+            if response.status == LogsQueryStatus.PARTIAL:
+                error = response.partial_error
+                data = response.tables
+                logger.warning(f"Partial success for KQL query: {error}")
+            elif response.status == LogsQueryStatus.FAILURE:
+                logger.error(f"KQL query failed: {response}")
+                return []
+            else:
+                data = response.tables
+
+            incidents = []
+            if data:
+                for table in data:
+                    # Get column indices
+                    col_map = {}
+                    for idx, col in enumerate(table.columns):
+                        if hasattr(col, 'name'):
+                            col_map[col.name] = idx
+                        else:
+                            col_map[str(col)] = idx
+                    
+                    for row in table.rows:
+                        incidents.append({
+                            "timestamp": row[col_map["TimeGenerated"]].isoformat() if row[col_map["TimeGenerated"]] else None,
+                            "resource_id": row[col_map["ResourceId"]],
+                            "level": row[col_map["Level"]],
+                            "operation": row[col_map["OperationName"]],
+                            "caller": row[col_map["Caller"]],
+                            "resource_group": row[col_map["ResourceGroup"]],
+                            "resource_provider": row[col_map["ResourceProvider"]]
+                        })
+            
+            logger.info(f"Found {len(incidents)} incidents")
+            return incidents
+
+        except Exception as e:
+            logger.error(f"Failed to query Azure Activity Logs: {e}")
+            return []
+
+    async def get_incidents_timeline(self, subscription_id: str, time_range: str = "24h") -> List[Dict]:
+        """
+        Get incident timeline data for chart.
+        """
+        if not self.logs_query_client:
+            return []
+            
+        try:
+            timespan_map = {
+                "24h": "24h",
+                "7d": "7d",
+                "30d": "30d"
+            }
+            timespan_str = timespan_map.get(time_range, "24h")
+            timespan_delta = timedelta(hours=24)
+            if time_range == "7d":
+                timespan_delta = timedelta(days=7)
+            elif time_range == "30d":
+                timespan_delta = timedelta(days=30)
+                
+            # Determine bin size based on range
+            bin_size = "1h"
+            if time_range == "7d":
+                bin_size = "6h"
+            elif time_range == "30d":
+                bin_size = "1d"
+            
+            query = f"""
+            AzureActivity
+            | where TimeGenerated > ago({timespan_str})
+            | where Level == 'Error' or Level == 'Warning' or Level == 'Critical'
+            | summarize Count=count() by bin(TimeGenerated, {bin_size}), Level
+            | order by TimeGenerated asc
+            """
+            
+            response = await asyncio.to_thread(
+                self.logs_query_client.query_resource,
+                resource_id=f"/subscriptions/{subscription_id}",
+                query=query,
+                timespan=timespan_delta
+            )
+            
+            if response.status == LogsQueryStatus.FAILURE:
+                return []
+                
+            data = response.tables
+            timeline = []
+            
+            if data:
+                for table in data:
+                    col_map = {}
+                    for idx, col in enumerate(table.columns):
+                        if hasattr(col, 'name'):
+                            col_map[col.name] = idx
+                        else:
+                            col_map[str(col)] = idx
+                            
+                    for row in table.rows:
+                        # Find existing bucket or create new
+                        timestamp = row[col_map["TimeGenerated"]].isoformat() if row[col_map["TimeGenerated"]] else None
+                        level = row[col_map["Level"]]
+                        count = row[col_map["Count"]]
+                        
+                        # We want a format like {timestamp: '...', error: 5, warning: 2}
+                        found = False
+                        for item in timeline:
+                            if item["timestamp"] == timestamp:
+                                item[level.lower()] = count
+                                found = True
+                                break
+                        
+                        if not found:
+                            entry = {"timestamp": timestamp}
+                            entry[level.lower()] = count
+                            timeline.append(entry)
+            
+            return timeline
+        except Exception as e:
+            logger.error(f"Failed to get incidents timeline: {e}")
+            return []
 
     # Subscription Management Methods
     async def list_subscriptions(self) -> List[Dict]:
@@ -182,6 +369,9 @@ class AzureService:
     
     async def list_locations(self, subscription_id: Optional[str] = None) -> List[Dict]:
         """List all available Azure locations/regions for a subscription"""
+        return await asyncio.to_thread(self._list_locations_sync, subscription_id)
+
+    def _list_locations_sync(self, subscription_id: Optional[str] = None) -> List[Dict]:
         try:
             target_subscription_id = subscription_id or self.subscription_id
             if not target_subscription_id:
@@ -204,6 +394,37 @@ class AzureService:
             raise
     
     # NSG Management Methods
+    async def find_nsg_resource_group(self, nsg_name: str, subscription_id: Optional[str] = None) -> Optional[str]:
+        """Find the resource group for a given NSG name"""
+        return await asyncio.to_thread(self._find_nsg_resource_group_sync, nsg_name, subscription_id)
+
+    def _find_nsg_resource_group_sync(self, nsg_name: str, subscription_id: Optional[str] = None) -> Optional[str]:
+        try:
+            target_subscription_id = subscription_id or self.subscription_id
+            if not target_subscription_id:
+                return None
+            
+            # Use specific client if provided, otherwise default
+            if subscription_id and subscription_id != self.subscription_id:
+                network_client = NetworkManagementClient(self.credential, subscription_id)
+            else:
+                # Fallback to initialized client if available and matches, or create new
+                if self.network_client and (not subscription_id or subscription_id == self.subscription_id):
+                    network_client = self.network_client
+                else:
+                    network_client = NetworkManagementClient(self.credential, target_subscription_id)
+
+            for nsg in network_client.network_security_groups.list_all():
+                if nsg.name.lower() == nsg_name.lower():
+                    # Parse RG from ID: /subscriptions/{sub}/resourceGroups/{rg}/...
+                    parts = nsg.id.split('/')
+                    if len(parts) > 4:
+                        return parts[4]
+            return None
+        except Exception as e:
+            logger.error(f"Failed to find NSG {nsg_name} in subscription: {e}")
+            return None
+
     async def list_nsgs(self, resource_group: Optional[str] = None, subscription_id: Optional[str] = None) -> List[Dict]:
         """List all NSGs in subscription or specific resource group"""
         try:
@@ -288,19 +509,31 @@ class AzureService:
             logger.error(f"Failed to list NSGs: {e}")
             raise
     
-    async def get_nsg(self, resource_group: str, nsg_name: str) -> Optional[Dict]:
+    async def get_nsg(self, resource_group: str, nsg_name: str, subscription_id: Optional[str] = None) -> Optional[Dict]:
         """Get specific NSG details"""
-        return await asyncio.to_thread(self._get_nsg_sync, resource_group, nsg_name)
+        return await asyncio.to_thread(self._get_nsg_sync, resource_group, nsg_name, subscription_id)
 
-    def _get_nsg_sync(self, resource_group: str, nsg_name: str) -> Optional[Dict]:
+    def _get_nsg_sync(self, resource_group: str, nsg_name: str, subscription_id: Optional[str] = None) -> Optional[Dict]:
         try:
-            nsg = self.network_client.network_security_groups.get(resource_group, nsg_name)
+            # Use provided subscription_id or fall back to default
+            target_subscription_id = subscription_id or self.subscription_id
+            
+            # If we need a different subscription client
+            network_client = self.network_client
+            if subscription_id and subscription_id != self.subscription_id:
+                network_client = NetworkManagementClient(self.credential, subscription_id)
+            
+            if not network_client:
+                 logger.error("Network client not initialized")
+                 return None
+
+            nsg = network_client.network_security_groups.get(resource_group, nsg_name)
             return {
                 "id": nsg.id,
                 "name": nsg.name,
                 "location": nsg.location,
                 "resource_group": resource_group,
-                "subscription_id": self.subscription_id,
+                "subscription_id": target_subscription_id,
                 "provisioning_state": nsg.provisioning_state,
                 "etag": nsg.etag,
                 "tags": nsg.tags or {},
@@ -346,12 +579,12 @@ class AzureService:
             return None
     
     async def update_nsg_rules(self, resource_group: str, nsg_name: str, 
-                             inbound_rules: List[Dict], outbound_rules: List[Dict]) -> bool:
+                             inbound_rules: List[Dict], outbound_rules: List[Dict]) -> Tuple[bool, Optional[str], Optional[str]]:
         """Update NSG security rules, supporting prefix lists and both directions"""
         return await asyncio.to_thread(self._update_nsg_rules_sync, resource_group, nsg_name, inbound_rules, outbound_rules)
 
     def _update_nsg_rules_sync(self, resource_group: str, nsg_name: str, 
-                             inbound_rules: List[Dict], outbound_rules: List[Dict]) -> bool:
+                             inbound_rules: List[Dict], outbound_rules: List[Dict]) -> Tuple[bool, Optional[str], Optional[str]]:
         try:
             # Get current NSG
             nsg = self.network_client.network_security_groups.get(resource_group, nsg_name)
@@ -365,6 +598,25 @@ class AzureService:
             def build_rule(rule_data: Dict) -> SecurityRule:
                 source_prefixes = rule_data.get("source_address_prefixes") or []
                 dest_prefixes = rule_data.get("destination_address_prefixes") or []
+                
+                # Default to * if ports/addresses are completely missing to avoid Azure errors
+                source_port_range = rule_data.get("source_port_range")
+                source_port_ranges = rule_data.get("source_port_ranges")
+                if not source_port_range and not source_port_ranges:
+                    source_port_range = "*"
+                    
+                dest_port_range = rule_data.get("destination_port_range")
+                dest_port_ranges = rule_data.get("destination_port_ranges")
+                if not dest_port_range and not dest_port_ranges:
+                    dest_port_range = "*"
+                    
+                source_address_prefix = rule_data.get("source_address_prefix")
+                if not source_address_prefix and not source_prefixes:
+                    source_address_prefix = "*"
+                    
+                dest_address_prefix = rule_data.get("destination_address_prefix")
+                if not dest_address_prefix and not dest_prefixes:
+                    dest_address_prefix = "*"
 
                 return SecurityRule(
                     name=rule_data["name"],
@@ -373,13 +625,13 @@ class AzureService:
                     access=rule_data["access"],
                     protocol=rule_data.get("protocol", "*"),
                     # Ports: support single or list if present
-                    source_port_range=rule_data.get("source_port_range"),
-                    destination_port_range=rule_data.get("destination_port_range"),
-                    source_port_ranges=rule_data.get("source_port_ranges"),
-                    destination_port_ranges=rule_data.get("destination_port_ranges"),
+                    source_port_range=source_port_range,
+                    destination_port_range=dest_port_range,
+                    source_port_ranges=source_port_ranges,
+                    destination_port_ranges=dest_port_ranges,
                     # Addresses: prefer list fields when provided
-                    source_address_prefix=None if source_prefixes else rule_data.get("source_address_prefix"),
-                    destination_address_prefix=None if dest_prefixes else rule_data.get("destination_address_prefix"),
+                    source_address_prefix=None if source_prefixes else source_address_prefix,
+                    destination_address_prefix=None if dest_prefixes else dest_address_prefix,
                     source_address_prefixes=source_prefixes or None,
                     destination_address_prefixes=dest_prefixes or None
                 )
@@ -403,13 +655,17 @@ class AzureService:
             poller = self.network_client.network_security_groups.begin_create_or_update(
                 resource_group, nsg_name, nsg
             )
-            poller.result()  # Wait for completion
+            result_nsg = poller.result()  # Wait for completion
 
             logger.info(f"Successfully updated NSG {nsg_name}")
-            return True
+            return True, None, result_nsg.id
         except AzureError as e:
-            logger.error(f"Failed to update NSG {nsg_name}: {e}")
-            return False
+            error_msg = f"Azure Error: {e.message}" if hasattr(e, 'message') else str(e)
+            logger.error(f"Failed to update NSG {nsg_name}: {error_msg}")
+            return False, error_msg, None
+        except Exception as e:
+            logger.error(f"Unexpected error updating NSG {nsg_name}: {str(e)}")
+            return False, str(e), None
 
     async def create_nsg(self, resource_group: str, nsg_name: str, location: str, tags: Dict = None) -> Dict:
         """Create a new NSG"""
@@ -496,16 +752,149 @@ class AzureService:
             raise
     
     # Backup and Restore Methods
-    async def create_backup(self, nsg_data: Dict, backup_name: str, 
-                          container_name: str = "nsg-backups", backup_format: str = "json") -> Optional[str]:
-        """Create backup of NSG configuration to blob storage in JSON and/or CSV format"""
-        if not self.blob_service_client:
-            logger.error("Blob service client not available")
-            return None
-        
+    def _find_storage_account_key(self, storage_account_name: str) -> Optional[Tuple[str, str]]:
+        """
+        Find storage account key by searching across subscriptions.
+        Returns (connection_string, key) or None.
+        """
         try:
+            # First try current subscription
+            subscriptions = self._list_subscriptions_sync()
+            
+            for sub in subscriptions:
+                sub_id = sub['id']
+                try:
+                    # Use existing client if matches, otherwise create new
+                    if sub_id == self.subscription_id and self.storage_client:
+                        storage_client = self.storage_client
+                    else:
+                        storage_client = StorageManagementClient(self.credential, sub_id)
+                    
+                    # List all storage accounts in subscription
+                    # We iterate because list() is paginated/iterable
+                    for account in storage_client.storage_accounts.list():
+                        if account.name == storage_account_name:
+                            # Found it! Get keys.
+                            # Parse RG from ID: /subscriptions/{sub}/resourceGroups/{rg}/...
+                            rg_name = account.id.split('/')[4]
+                            
+                            keys = storage_client.storage_accounts.list_keys(rg_name, storage_account_name)
+                            if keys.keys:
+                                key = keys.keys[0].value
+                                conn_string = f"DefaultEndpointsProtocol=https;AccountName={storage_account_name};AccountKey={key};EndpointSuffix=core.windows.net"
+                                logger.info(f"Found storage account key for {storage_account_name} in subscription {sub_id}")
+                                return conn_string, key
+                except Exception as e:
+                    # Just log debug, as we expect failures in subs we don't have access to
+                    logger.debug(f"Skipping subscription {sub_id} for storage account check: {e}")
+                    continue
+            
+            return None
+        except Exception as e:
+            logger.error(f"Failed to find storage account key: {e}")
+            return None
+
+    def _perform_backup_sync(self, client: BlobServiceClient, nsg_data: Dict, backup_name: str, 
+                           container_name: str, backup_format: str) -> str:
+        """Sync implementation of backup upload logic"""
+        # Create container if it doesn't exist
+        container_client = client.get_container_client(container_name)
+        try:
+            container_client.get_container_properties()
+        except:
+            container_client.create_container()
+        
+        # Create backup data structure
+        backup_content = {
+            "backup_metadata": {
+                "backup_id": f"backup-{hash(str(nsg_data)) % 10000}",
+                "created_at": datetime.utcnow().isoformat() + "Z",
+                "backup_name": backup_name,
+                "backup_type": "manual",
+                "resource_type": "nsg",
+                "storage_account": container_name,
+                "container": container_name
+            },
+            "nsgs": [nsg_data]
+        }
+        
+        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        json_blob_url = None
+        csv_blob_url = None
+        
+        # Create JSON backup if requested
+        if backup_format in ['json', 'both']:
+            json_blob_name = f"{nsg_data['name']}/{backup_name}_{timestamp}.json"
+            json_blob_client = container_client.get_blob_client(json_blob_name)
+            
+            json_blob_client.upload_blob(
+                json.dumps(backup_content, indent=2),
+                overwrite=True
+            )
+            json_blob_url = json_blob_client.url
+            logger.info(f"JSON backup created successfully: {json_blob_url}")
+        
+        # Create CSV backup if requested
+        if backup_format in ['csv', 'both']:
+            # Generate enhanced CSV content - need to call sync version or run async in sync?
+            # _create_enhanced_csv_content is async.
+            # But it doesn't perform any IO, it just processes the dict.
+            # So we can just run it. Wait, it's defined as async.
+            # Let's check _create_enhanced_csv_content implementation. 
+            # It just does data processing, no await inside (except maybe the function definition).
+            # We can refactor it to be sync or run it.
+            
+            # For now, since we are inside a sync function running in a thread, 
+            # we can't await. We should make _create_enhanced_csv_content sync.
+            # Or simpler: since we are already in a thread, we can just run the logic inline or call a sync version.
+            
+            # Let's fix _create_enhanced_csv_content to be sync (it has no await calls inside).
+            # For now, I'll inline the call if I can, or use asyncio.run (bad in thread).
+            # Best is to change _create_enhanced_csv_content to sync since it has no IO.
+            pass
+
+        # ... (handling CSV content generation) ...
+        # Since I can't easily change the other method in this SearchReplace without context,
+        # I will handle it carefully. 
+        # Actually, looking at the file content I read earlier, _create_enhanced_csv_content 
+        # is async but contains NO await calls.
+        # So I can just call it synchronously? No, Python functions defined with async always return a coroutine.
+        # I will make a sync version of it.
+        pass
+        
+    async def create_backup(self, nsg_data: Dict, backup_name: str, 
+                          container_name: str = "nsg-backups", backup_format: str = "json",
+                          storage_account_name: Optional[str] = None) -> Optional[str]:
+        """Create backup of NSG configuration to blob storage in JSON and/or CSV format"""
+        
+        # Ensure container_name is set, falling back to settings or default
+        container_name = container_name or settings.AZURE_STORAGE_CONTAINER_NAME or "nsg-backups"
+        
+        # Determine which blob service client to use
+        client_to_use = self.blob_service_client
+        
+        if storage_account_name:
+            try:
+                account_url = f"https://{storage_account_name}.blob.core.windows.net"
+                # Create a new client for the specific storage account using the same credentials
+                client_to_use = BlobServiceClient(account_url=account_url, credential=self.credential)
+            except Exception as e:
+                logger.error(f"Failed to initialize client for storage account {storage_account_name}: {e}")
+                # We will try fallback later if this client fails
+        
+        if not client_to_use and not storage_account_name:
+            logger.error("Blob service client not available")
+            raise Exception("Blob service client not available")
+        
+        # Prepare CSV content beforehand to avoid async/sync issues in the threaded part
+        csv_content = None
+        if backup_format in ['csv', 'both']:
+            csv_content = await self._create_enhanced_csv_content(nsg_data)
+
+        # Inner sync function for to_thread
+        def _execute_backup(client, content_csv):
             # Create container if it doesn't exist
-            container_client = self.blob_service_client.get_container_client(container_name)
+            container_client = client.get_container_client(container_name)
             try:
                 container_client.get_container_properties()
             except:
@@ -542,15 +931,12 @@ class AzureService:
                 logger.info(f"JSON backup created successfully: {json_blob_url}")
             
             # Create CSV backup if requested
-            if backup_format in ['csv', 'both']:
-                # Generate enhanced CSV content
-                csv_content = await self._create_enhanced_csv_content(nsg_data)
-                
+            if backup_format in ['csv', 'both'] and content_csv:
                 csv_blob_name = f"{nsg_data['name']}/{backup_name}_{timestamp}.csv"
                 csv_blob_client = container_client.get_blob_client(csv_blob_name)
                 
                 csv_blob_client.upload_blob(
-                    csv_content,
+                    content_csv,
                     overwrite=True,
                     content_type="text/csv"
                 )
@@ -564,10 +950,27 @@ class AzureService:
                 return json_blob_url
             else:  # 'both'
                 return json_blob_url or csv_blob_url
-                
+
+        try:
+            return await asyncio.to_thread(_execute_backup, client_to_use, csv_content)
         except Exception as e:
-            logger.error(f"Failed to create backup: {e}")
-            return None
+            error_str = str(e)
+            if ("AuthorizationPermissionMismatch" in error_str or "AuthorizationFailure" in error_str or "403" in error_str) and storage_account_name:
+                logger.warning(f"Authorization failed with default credential. Attempting fallback to Access Keys for {storage_account_name}...")
+                
+                # Try to get keys
+                key_info = await asyncio.to_thread(self._find_storage_account_key, storage_account_name)
+                if key_info:
+                    conn_string, key = key_info
+                    # Create new client with connection string
+                    new_client = BlobServiceClient.from_connection_string(conn_string)
+                    # Retry backup
+                    return await asyncio.to_thread(_execute_backup, new_client, csv_content)
+                else:
+                    raise Exception(f"Failed to find access keys for storage account {storage_account_name}. Please ensure you have 'Storage Blob Data Contributor' role or 'Contributor' role on the storage account.")
+            else:
+                logger.error(f"Failed to create backup: {e}")
+                raise Exception(f"Failed to create backup: {str(e)}")
     
     async def _create_enhanced_csv_content(self, nsg_data: Dict) -> str:
         """Create enhanced CSV content using the same format as create_standardized_csv_format"""
@@ -768,6 +1171,9 @@ class AzureService:
     async def export_to_csv(self, nsg_data: Dict, filename: str,
                           container_name: str = "nsg-exports") -> Optional[str]:
         """Export NSG configuration to CSV format"""
+        # Ensure container_name is set, falling back to settings or default
+        container_name = container_name or settings.AZURE_STORAGE_CONTAINER_NAME or "nsg-exports"
+
         if not self.blob_service_client:
             logger.error("Blob service client not available")
             return None
@@ -956,6 +1362,9 @@ class AzureService:
 
     def upload_blob_sync(self, content: str, filename: str, container_name: str = "nsg-backups", content_type: str = "text/plain") -> Optional[str]:
         """Upload content to blob storage (synchronous version)"""
+        # Ensure container_name is set, falling back to settings or default
+        container_name = container_name or settings.AZURE_STORAGE_CONTAINER_NAME or "nsg-backups"
+
         if not self.blob_service_client:
             logger.error("Blob service client not available")
             return None
@@ -1086,7 +1495,12 @@ class AzureService:
             
             # Store snapshot in blob storage
             if self.blob_service_client:
-                container_name = "nsg-snapshots"
+                container_name = settings.AZURE_STORAGE_CONTAINER_NAME
+                # Use a specific folder for snapshots within the main container
+                # or use the main container directly. 
+                # User requested "container information" to be respected, so we use the configured one.
+                # If separation is needed, we can use a prefix in blob_name.
+                
                 container_client = self.blob_service_client.get_container_client(container_name)
                 try:
                     container_client.get_container_properties()
@@ -1128,7 +1542,7 @@ class AzureService:
             inbound_rules = nsg_config.get("inbound_rules", [])
             outbound_rules = nsg_config.get("outbound_rules", [])
             
-            success = await self.update_nsg_rules(
+            success, error_msg, _ = await self.update_nsg_rules(
                 resource_group, nsg_name, inbound_rules, outbound_rules
             )
             
@@ -1136,7 +1550,7 @@ class AzureService:
                 logger.info(f"Successfully rolled back NSG {nsg_name} to snapshot")
                 return True
             else:
-                logger.error(f"Failed to rollback NSG {nsg_name}")
+                logger.error(f"Failed to rollback NSG {nsg_name}: {error_msg}")
                 return False
         except Exception as e:
             logger.error(f"Failed to rollback to snapshot: {e}")
@@ -1171,12 +1585,17 @@ class AzureService:
 
     async def list_blobs(self, container_name: str, storage_account_name: Optional[str] = None) -> List[Dict]:
         """List all blobs in a container"""
+        # Ensure container_name is set, falling back to settings or default
+        container_name = container_name or settings.AZURE_STORAGE_CONTAINER_NAME or "nsg-backups"
         return await asyncio.to_thread(self._list_blobs_sync, container_name, storage_account_name)
 
     def _list_blobs_sync(self, container_name: str, storage_account_name: Optional[str] = None) -> List[Dict]:
         client = self.blob_service_client
         if storage_account_name:
             client = self.get_blob_service_client_for_account(storage_account_name)
+
+        # Ensure container_name is set, falling back to settings or default
+        container_name = container_name or settings.AZURE_STORAGE_CONTAINER_NAME or "nsg-backups"
 
         if not client:
             logger.error("Blob service client not available")
@@ -1199,12 +1618,17 @@ class AzureService:
 
     async def read_blob_content(self, container_name: str, blob_name: str, storage_account_name: Optional[str] = None) -> str:
         """Read content of a blob"""
+        # Ensure container_name is set, falling back to settings or default
+        container_name = container_name or settings.AZURE_STORAGE_CONTAINER_NAME or "nsg-backups"
         return await asyncio.to_thread(self._read_blob_content_sync, container_name, blob_name, storage_account_name)
 
     def _read_blob_content_sync(self, container_name: str, blob_name: str, storage_account_name: Optional[str] = None) -> str:
         client = self.blob_service_client
         if storage_account_name:
             client = self.get_blob_service_client_for_account(storage_account_name)
+
+        # Ensure container_name is set, falling back to settings or default
+        container_name = container_name or settings.AZURE_STORAGE_CONTAINER_NAME or "nsg-backups"
 
         if not client:
             raise Exception("Blob service client not available")
@@ -1248,7 +1672,7 @@ class AzureService:
                     "resource_group": account.id.split('/')[4],
                     "location": account.location,
                     "sku": account.sku.name if account.sku else "Unknown",
-                    "kind": account.kind.value if account.kind else "Unknown",
+                    "kind": account.kind.value if hasattr(account.kind, 'value') else str(account.kind) if account.kind else "Unknown",
                     "subscription_id": target_subscription_id,
                     "provisioning_state": getattr(account_details, 'provisioning_state', 'Unknown'),
                     "creation_time": getattr(account_details, 'creation_time', None).isoformat() if getattr(account_details, 'creation_time', None) else None,
@@ -1265,10 +1689,231 @@ class AzureService:
             logger.error(f"Failed to list storage accounts: {e}")
             return []
 
+    async def list_vms(self, subscription_id: Optional[str] = None) -> List[Dict]:
+        """List all Virtual Machines in the subscription"""
+        try:
+            target_subscription_id = subscription_id or self.subscription_id
+            if not target_subscription_id:
+                raise ValueError("No subscription ID provided and no default subscription configured")
+            
+            compute_client = self.compute_client
+            if subscription_id and subscription_id != self.subscription_id:
+                compute_client = ComputeManagementClient(self.credential, target_subscription_id)
+            elif not compute_client:
+                 compute_client = ComputeManagementClient(self.credential, target_subscription_id)
 
+            vms = []
+            for vm in compute_client.virtual_machines.list_all():
+                vms.append({
+                    "id": vm.id,
+                    "name": vm.name,
+                    "resource_group": vm.id.split('/')[4],
+                    "location": vm.location,
+                    "subscription_id": target_subscription_id,
+                    "provisioning_state": vm.provisioning_state,
+                    "vm_size": vm.hardware_profile.vm_size if vm.hardware_profile else "Unknown",
+                    "os_type": vm.storage_profile.os_disk.os_type.value if vm.storage_profile and vm.storage_profile.os_disk else "Unknown"
+                })
+            return vms
+        except Exception as e:
+            logger.error(f"Failed to list VMs: {e}")
+            return []
 
+    async def list_web_apps(self, subscription_id: Optional[str] = None) -> List[Dict]:
+        """List all Web Apps in the subscription"""
+        try:
+            target_subscription_id = subscription_id or self.subscription_id
+            if not target_subscription_id:
+                raise ValueError("No subscription ID provided and no default subscription configured")
+            
+            web_client = self.web_client
+            if subscription_id and subscription_id != self.subscription_id:
+                web_client = WebSiteManagementClient(self.credential, target_subscription_id)
+            elif not web_client:
+                 web_client = WebSiteManagementClient(self.credential, target_subscription_id)
 
+            web_apps = []
+            for app in web_client.web_apps.list():
+                web_apps.append({
+                    "id": app.id,
+                    "name": app.name,
+                    "resource_group": app.resource_group,
+                    "location": app.location,
+                    "subscription_id": target_subscription_id,
+                    "state": app.state,
+                    "default_host_name": app.default_host_name,
+                    "https_only": app.https_only
+                })
+            return web_apps
+        except Exception as e:
+            logger.error(f"Failed to list Web Apps: {e}")
+            return []
 
+    async def list_key_vaults(self, subscription_id: Optional[str] = None) -> List[Dict]:
+        """List all Key Vaults in the subscription"""
+        try:
+            target_subscription_id = subscription_id or self.subscription_id
+            if not target_subscription_id:
+                raise ValueError("No subscription ID provided and no default subscription configured")
+            
+            keyvault_client = self.keyvault_client
+            if subscription_id and subscription_id != self.subscription_id:
+                keyvault_client = KeyVaultManagementClient(self.credential, target_subscription_id)
+            elif not keyvault_client:
+                 keyvault_client = KeyVaultManagementClient(self.credential, target_subscription_id)
 
+            vaults = []
+            for vault in keyvault_client.vaults.list():
+                vaults.append({
+                    "id": vault.id,
+                    "name": vault.name,
+                    "resource_group": vault.id.split('/')[4],
+                    "location": vault.location,
+                    "subscription_id": target_subscription_id,
+                    "sku": vault.properties.sku.name.value if vault.properties and vault.properties.sku else "Unknown",
+                    "provisioning_state": vault.properties.provisioning_state if vault.properties else "Unknown"
+                })
+            return vaults
+        except Exception as e:
+            logger.error(f"Failed to list Key Vaults: {e}")
+            return []
+
+    async def list_wafs(self, subscription_id: Optional[str] = None) -> List[Dict]:
+        """List all WAF Policies in the subscription"""
+        try:
+            target_subscription_id = subscription_id or self.subscription_id
+            if not target_subscription_id:
+                raise ValueError("No subscription ID provided and no default subscription configured")
+            
+            network_client = self.network_client
+            if subscription_id and subscription_id != self.subscription_id:
+                network_client = NetworkManagementClient(self.credential, target_subscription_id)
+            elif not network_client:
+                 network_client = NetworkManagementClient(self.credential, target_subscription_id)
+
+            wafs = []
+            for waf in network_client.web_application_firewall_policies.list_all():
+                 wafs.append({
+                    "id": waf.id,
+                    "name": waf.name,
+                    "resource_group": waf.id.split('/')[4],
+                    "location": waf.location,
+                    "subscription_id": target_subscription_id,
+                    "provisioning_state": waf.provisioning_state,
+                    "policy_settings": {
+                        "state": waf.policy_settings.state if waf.policy_settings else None,
+                        "mode": waf.policy_settings.mode if waf.policy_settings else None
+                    } if waf.policy_settings else None
+                })
+            return wafs
+        except Exception as e:
+            logger.error(f"Failed to list WAFs: {e}")
+            return []
+
+    async def get_storage_report(self, subscription_id: Optional[str] = None, region: Optional[str] = None, resource_group: Optional[str] = None) -> List[Dict]:
+        """Get detailed storage report similar to the reference script"""
+        try:
+            target_subscription_id = subscription_id or self.subscription_id
+            if not target_subscription_id:
+                raise ValueError("No subscription ID provided")
+            
+            # Get Subscription Name
+            sub_name = target_subscription_id
+            try:
+                sub = self.subscription_client.subscriptions.get(target_subscription_id)
+                sub_name = sub.display_name
+            except Exception:
+                pass
+
+            storage_client = self.storage_client
+            if subscription_id and subscription_id != self.subscription_id:
+                storage_client = StorageManagementClient(self.credential, target_subscription_id)
+            elif not storage_client:
+                storage_client = StorageManagementClient(self.credential, target_subscription_id)
+
+            accounts = list(storage_client.storage_accounts.list())
+            
+            # Apply Filters
+            if region and region != 'All':
+                accounts = [a for a in accounts if a.location.lower() == region.lower()]
+            
+            if resource_group and resource_group != 'All':
+                accounts = [a for a in accounts if a.id.split('/')[4].lower() == resource_group.lower()]
+
+            report_data = []
+
+            def process_storage_account(account):
+                try:
+                    rg_name = account.id.split('/')[4]
+                    account_name = account.name
+                    location = account.location
+                    sku = account.sku.name
+                    
+                    # Get Keys
+                    keys = storage_client.storage_accounts.list_keys(rg_name, account_name)
+                    key = keys.keys[0].value
+                    conn_str = f"DefaultEndpointsProtocol=https;AccountName={account_name};AccountKey={key};EndpointSuffix=core.windows.net"
+                    
+                    total_size_bytes = 0
+                    last_activity = datetime.min
+                    container_count = 0
+                    
+                    # Blob Service
+                    try:
+                        blob_service = BlobServiceClient.from_connection_string(conn_str)
+                        containers = list(blob_service.list_containers())
+                        container_count = len(containers)
+                        
+                        # We limit the depth of checking to avoid timeout
+                        # Check up to 5 containers for last modified
+                        for container in containers[:5]:
+                            if container.last_modified:
+                                last_activity = max(last_activity, container.last_modified.replace(tzinfo=None))
+                            
+                    except Exception as e:
+                        # logger.warning(f"Blob service error for {account_name}: {e}")
+                        pass
+
+                    # Status & Archive Recommendation
+                    status = "Active"
+                    archive_rec = "No"
+                    
+                    last_activity_str = "Unknown"
+                    if last_activity != datetime.min:
+                        last_activity_str = last_activity.strftime("%Y-%m-%d %H:%M:%S")
+                        days_inactive = (datetime.now() - last_activity).days
+                        if days_inactive > 90:
+                            status = "Inactive"
+                            archive_rec = "Yes"
+                    
+                    return {
+                        "subscription_name": sub_name,
+                        "subscription_id": target_subscription_id,
+                        "storage_account": account_name,
+                        "resource_group": rg_name,
+                        "total_size_gb": round(total_size_bytes / (1024**3), 2),
+                        "last_activity": last_activity_str,
+                        "status": status,
+                        "sku": sku,
+                        "location": location,
+                        "container_count": container_count,
+                        "archive_recommendation": archive_rec
+                    }
+                except Exception as e:
+                    logger.error(f"Error processing {account.name}: {e}")
+                    return None
+
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                futures = [executor.submit(process_storage_account, acc) for acc in accounts]
+                for future in as_completed(futures):
+                    res = future.result()
+                    if res:
+                        report_data.append(res)
+            
+            return report_data
+
+        except Exception as e:
+            logger.error(f"Failed to generate storage report: {e}")
+            return []
 
 

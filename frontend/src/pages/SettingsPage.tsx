@@ -16,7 +16,8 @@ import {
   Mail,
   Send,
   CheckCircle,
-  Download
+  Download,
+  Layout
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { apiClient } from '../config/api';
@@ -36,6 +37,13 @@ const SettingsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState('users');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Display Settings
+  const [displaySettings, setDisplaySettings] = useState({
+    showStorage: localStorage.getItem('showStorage') !== 'false',
+    showNSG: localStorage.getItem('showNSG') !== 'false',
+  });
+
   const [emailConfig, setEmailConfig] = useState({
     smtpServer: '',
     smtpPort: '587',
@@ -58,6 +66,15 @@ const SettingsPage: React.FC = () => {
     systemUpdates: true,
     backupStatus: true,
   });
+
+  const handleDisplaySettingChange = (key: 'showStorage' | 'showNSG', value: boolean) => {
+    const newSettings = { ...displaySettings, [key]: value };
+    setDisplaySettings(newSettings);
+    localStorage.setItem(key, String(value));
+    // Dispatch event for Layout to listen
+    window.dispatchEvent(new Event('displaySettingsChanged'));
+    toast.success(`${key === 'showStorage' ? 'Storage' : 'NSG'} module ${value ? 'enabled' : 'disabled'}`);
+  };
 
   useEffect(() => {
     const loadData = async () => {
@@ -125,7 +142,7 @@ const SettingsPage: React.FC = () => {
   const tabs = [
     { id: 'users', name: 'User Management', icon: Users },
     { id: 'notifications', name: 'Notifications', icon: Bell },
-    { id: 'system', name: 'System', icon: Database }
+    { id: 'display', name: 'Display', icon: Layout }
   ];
 
   const handleAddUser = async () => {
@@ -778,100 +795,49 @@ const SettingsPage: React.FC = () => {
             </Card>
           )}
 
-          {activeTab === 'system' && (
-            <div className="grid gap-6 md:grid-cols-2">
-              <Card className="enterprise-card">
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Database className="h-4 w-4 mr-2 text-blue-500" />
-                    System Information
-                  </CardTitle>
-                  <CardDescription>
-                    View system status and configuration details.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid gap-3">
-                    <div className="flex justify-between">
-                      <span className="text-slate-600">Version:</span>
-                      <span className="font-semibold">v2.1.0</span>
+          {activeTab === 'display' && (
+            <Card className="enterprise-card">
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Layout className="h-4 w-4 mr-2 text-blue-500" />
+                  Display Settings
+                </CardTitle>
+                <CardDescription>
+                  Customize the application interface and visible modules.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+                    <div>
+                      <div className="font-semibold text-slate-900">Show Storage Module</div>
+                      <div className="text-sm text-slate-600">Enable or disable the Storage management module in the sidebar</div>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-600">Uptime:</span>
-                      <span className="font-semibold">15 days, 4 hours</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-600">Database:</span>
-                      <Badge className="bg-green-100 text-green-800 border-green-200">Connected</Badge>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-600">Storage:</span>
-                      <span className="font-semibold">2.4 GB / 10 GB</span>
-                    </div>
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                      checked={displaySettings.showStorage}
+                      onChange={(e) => handleDisplaySettingChange('showStorage', e.target.checked)}
+                    />
                   </div>
-                </CardContent>
-              </Card>
-
-              <Card className="enterprise-card">
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Globe className="h-4 w-4 mr-2 text-blue-500" />
-                    System Maintenance
-                  </CardTitle>
-                  <CardDescription>
-                    Perform system maintenance and updates.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <Button
-                    className="w-full"
-                    variant="outline"
-                    onClick={async () => {
-                      try {
-                        const res = await apiClient.post('/api/v1/system/maintenance', { action: 'check_updates' });
-                        toast[res?.success ? 'success' : 'error'](res?.message || 'Failed to check updates');
-                      } catch (err: any) {
-                        const msg = err?.response?.data?.message || err?.message || 'Failed to check updates';
-                        toast.error(msg);
-                      }
-                    }}
-                  >
-                    Check for Updates
-                  </Button>
-                  <Button
-                    className="w-full"
-                    variant="outline"
-                    onClick={async () => {
-                      try {
-                        const res = await apiClient.post('/api/v1/system/maintenance', { action: 'clear_cache' });
-                        toast[res?.success ? 'success' : 'error'](res?.message || 'Failed to clear cache');
-                      } catch (err: any) {
-                        const msg = err?.response?.data?.message || err?.message || 'Failed to clear cache';
-                        toast.error(msg);
-                      }
-                    }}
-                  >
-                    Clear Cache
-                  </Button>
-                  <Button
-                    className="w-full text-red-600 hover:text-red-700"
-                    variant="outline"
-                    onClick={async () => {
-                      try {
-                        const res = await apiClient.post('/api/v1/system/maintenance', { action: 'restart' });
-                        toast[res?.success ? 'success' : 'error'](res?.message || 'Failed to restart');
-                      } catch (err: any) {
-                        const msg = err?.response?.data?.message || err?.message || 'Failed to restart';
-                        toast.error(msg);
-                      }
-                    }}
-                  >
-                    Restart System
-                  </Button>
-                </CardContent>
-              </Card>
-            </div>
+                  <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+                    <div>
+                      <div className="font-semibold text-slate-900">Show NSG Module</div>
+                      <div className="text-sm text-slate-600">Enable or disable the NSG management module in the sidebar</div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                      checked={displaySettings.showNSG}
+                      onChange={(e) => handleDisplaySettingChange('showNSG', e.target.checked)}
+                    />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           )}
+
+
         </div>
       </div>
     </div>

@@ -36,16 +36,21 @@ else:
 
 # Create synchronous engine for services that need sync operations
 # Convert async SQLite URL to sync SQLite URL
-sync_database_url = settings.DATABASE_URL.replace("sqlite+aiosqlite://", "sqlite://")
+sync_database_url = settings.DATABASE_URL
+if "sqlite+aiosqlite" in sync_database_url:
+    sync_database_url = sync_database_url.replace("sqlite+aiosqlite://", "sqlite://")
+elif "postgresql+asyncpg" in sync_database_url:
+    sync_database_url = sync_database_url.replace("postgresql+asyncpg://", "postgresql://")
+
 if "sqlite" in settings.DATABASE_URL:
     sync_engine = create_engine(
         sync_database_url,
-        echo=settings.DEBUG
+        echo=settings.DB_ECHO
     )
 else:
     sync_engine = create_engine(
         sync_database_url,
-        echo=settings.DEBUG,
+        echo=settings.DB_ECHO,
         pool_pre_ping=True,
         pool_recycle=300,
         pool_size=10,
@@ -77,7 +82,7 @@ async def init_db():
     """Initialize database connection and create tables"""
     try:
         # Import all models here to ensure they are registered
-        from app.models import user, nsg, agent
+        from app.models import user, nsg, agent, backup, dashboard
         
         # Create tables for async engine only
         async with engine.begin() as conn:
@@ -89,11 +94,16 @@ async def init_db():
         raise
 
 
+from fastapi import HTTPException
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Dependency to get database session"""
     async with AsyncSessionLocal() as session:
         try:
             yield session
+        except HTTPException:
+            await session.rollback()
+            raise
         except Exception as e:
             await session.rollback()
             logger.error(f"Database session error: {e}")

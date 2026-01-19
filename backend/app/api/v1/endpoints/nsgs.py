@@ -167,12 +167,12 @@ async def update_nsg_rules(
         )
         
         # Update rules in Azure
-        success = await azure_service.update_nsg_rules(
+        success, error_msg, _ = await azure_service.update_nsg_rules(
             nsg.resource_group, nsg.name, inbound_rules, outbound_rules
         )
         
         if not success:
-            raise HTTPException(status_code=500, detail="Failed to update NSG rules in Azure")
+            raise HTTPException(status_code=500, detail=f"Failed to update NSG rules in Azure: {error_msg}")
         
         # Update database
         nsg.inbound_rules = inbound_rules

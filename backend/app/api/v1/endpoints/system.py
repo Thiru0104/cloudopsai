@@ -110,6 +110,10 @@ async def system_info(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     return {
         "version": settings.VERSION,
         "environment": settings.ENVIRONMENT,
+        "azure_config": {
+            "storage_account_name": settings.AZURE_STORAGE_ACCOUNT_NAME,
+            "container_name": settings.AZURE_STORAGE_CONTAINER_NAME,
+        },
         "uptime_seconds": int(uptime_seconds),
         "uptime": _format_uptime(uptime_seconds),
         "database": {

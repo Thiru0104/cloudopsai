@@ -15,7 +15,8 @@ from app.api.v1.endpoints import (
     reports,
     backup,
     validation,
-    storage
+    storage,
+    storage_validation
 )
 
 api_router = APIRouter()
@@ -36,4 +37,5 @@ api_router.include_router(validation.router, tags=["Validation"])
 api_router.include_router(system.router, prefix="/system", tags=["System"])
 api_router.include_router(email.router, prefix="/email", tags=["Email"])
 api_router.include_router(settings.router, prefix="/settings", tags=["Settings"])
-api_router.include_router(storage.router, tags=["Storage"])
+api_router.include_router(storage.router, prefix="/storage", tags=["Storage"])
+api_router.include_router(storage_validation.router, prefix="/storage-validation", tags=["Storage Validation"])

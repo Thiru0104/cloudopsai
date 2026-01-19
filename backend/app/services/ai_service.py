@@ -4,9 +4,13 @@ import asyncio
 from typing import Dict, List, Any, Optional, AsyncGenerator
 from datetime import datetime
 import logging
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, AsyncAzureOpenAI
 import aiohttp
 from app.schemas.agent import AIModel, AIModelInfo
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -20,13 +24,57 @@ class AIService:
         """Initialize AI model clients based on available API keys"""
         try:
             # Azure OpenAI
-            if os.getenv("AZURE_OPENAI_API_KEY") and os.getenv("AZURE_OPENAI_ENDPOINT"):
-                self.azure_openai_client = AsyncOpenAI(
-                    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-                    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-                    api_version="2024-02-15-preview"
-                )
-                logger.info("Azure OpenAI client initialized")
+            azure_key = os.getenv("AZURE_OPENAI_API_KEY")
+            azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+            
+            if azure_endpoint:
+                logger.info(f"Initializing Azure OpenAI with endpoint: {azure_endpoint}")
+                
+                # Check authentication method
+                # Priority 1: API Key (if provided)
+                if azure_key:
+                    try:
+                        self.azure_openai_client = AsyncAzureOpenAI(
+                            api_key=azure_key,
+                            azure_endpoint=azure_endpoint,
+                            api_version="2024-02-15-preview"
+                        )
+                        logger.info("Azure OpenAI client initialized with API Key")
+                    except Exception as e:
+                        logger.warning(f"Failed to initialize API Key Auth: {e}")
+
+                # Priority 2: Token Auth (DefaultAzureCredential) - if no key or key failed
+                if not self.azure_openai_client:
+                    try:
+                        from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+                        
+                        # Determine scope based on endpoint
+                        # AI Studio (services.ai.azure.com) typically requires https://ml.azure.com/.default
+                        # Standard Azure OpenAI (openai.azure.com) requires https://cognitiveservices.azure.com/.default
+                        
+                        if "services.ai.azure.com" in azure_endpoint:
+                            scope = "https://ml.azure.com/.default"
+                            logger.info(f"Using AI Studio scope: {scope}")
+                        else:
+                            scope = "https://cognitiveservices.azure.com/.default"
+                            logger.info(f"Using Cognitive Services scope: {scope}")
+
+                        token_provider = get_bearer_token_provider(
+                            DefaultAzureCredential(), 
+                            scope
+                        )
+                        
+                        self.azure_openai_client = AsyncAzureOpenAI(
+                            azure_ad_token_provider=token_provider,
+                            azure_endpoint=azure_endpoint,
+                            api_version="2024-05-01-preview"
+                        )
+                        logger.info("Azure OpenAI client initialized with Token Auth")
+                    except Exception as e:
+                        logger.warning(f"Failed to initialize Token Auth: {e}")
+
+                if not self.azure_openai_client:
+                    logger.warning("Azure OpenAI credentials not found or initialization failed")
             
             # OpenAI
             if os.getenv("OPENAI_API_KEY"):

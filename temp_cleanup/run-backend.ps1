@@ -40,13 +40,13 @@ if ($LASTEXITCODE -ne 0) {
 # Set environment variables for local development
 $env:PYTHONPATH = "$PWD/backend"
 # Use PostgreSQL by default (commented out to use SQLite if preferred)
-$env:DATABASE_URL = "postgresql+asyncpg://cloudopsai:cloudopsai123@localhost:5432/cloudopsai"
+# $env:DATABASE_URL = "postgresql+asyncpg://cloudopsai:cloudopsai123@localhost:5432/cloudopsai"
 
 # If you want to use SQLite instead, uncomment below:
-# $env:DATABASE_URL = "sqlite+aiosqlite:///./cloudopsai.db"
-# if (-not (Test-Path "cloudopsai.db")) {
-#     Write-Host "Using SQLite database at ./cloudopsai.db" -ForegroundColor Yellow
-# }
+$env:DATABASE_URL = "sqlite+aiosqlite:///./sql_app.db"
+if (-not (Test-Path "backend/sql_app.db")) {
+    Write-Host "Using SQLite database at ./backend/sql_app.db" -ForegroundColor Yellow
+}
 
 # Application settings
 $env:ENVIRONMENT = "development"

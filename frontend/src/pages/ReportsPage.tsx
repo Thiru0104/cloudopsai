@@ -244,9 +244,6 @@ const ReportsPage: React.FC = () => {
 
   const exportToCSV = async (reportType: string) => {
     try {
-      console.log('=== Direct CSV Export Start ===');
-      console.log('Export CSV called for:', reportType);
-      
       // Validate required filters first
       if (!selectedSubscription) {
         alert('Please select a subscription before exporting CSV.');
@@ -255,14 +252,12 @@ const ReportsPage: React.FC = () => {
       
       // Allow empty resource group for "All resource groups" selection
       
-      if (selectedNSGs.length === 0) {
+      const nsgList = selectedNSGs.length > 0 ? selectedNSGs : (selectedNSG ? [selectedNSG] : []);
+  
+      if (nsgList.length === 0) {
         alert('Please select at least one NSG before exporting CSV.');
         return;
       }
-      
-      console.log('Validation passed - Subscription:', selectedSubscription);
-      console.log('Resource Group:', selectedResourceGroup);
-      console.log('Selected NSGs:', selectedNSGs);
       
       // Show loading state
       setIsExporting(true);
@@ -271,10 +266,8 @@ const ReportsPage: React.FC = () => {
       const requestData = {
         subscription_id: selectedSubscription,
         resource_group: selectedResourceGroup,
-        selected_nsgs: selectedNSGs
+        nsg_names: nsgList
       };
-      
-      console.log('Request data for CSV export:', requestData);
       
       // Map report type to backend endpoint
       const endpointMap = {
@@ -290,30 +283,21 @@ const ReportsPage: React.FC = () => {
         throw new Error(`Unknown report type: ${reportType}`);
       }
       
-      console.log('Fetching data from endpoint:', endpoint);
-      
       // Fetch data directly from backend
       const result = await apiClient.post(endpoint, requestData);
-      console.log('Backend response for CSV export:', result);
       
       if (!result.success) {
         throw new Error(result.message || 'Report generation failed');
       }
       
       const reportData = result.data;
-      console.log('Report data structure:', reportData);
-      console.log('Has csv_headers:', !!reportData?.csv_headers);
-      console.log('Has csv_data:', !!reportData?.csv_data);
       
       if (!reportData || !reportData.csv_headers || !reportData.csv_data) {
-        console.log('ERROR: Missing CSV data in response');
         alert('No CSV data available for this report.');
         return;
       }
       
       // Generate CSV content from fetched data
-      console.log('CSV Headers:', reportData.csv_headers);
-      console.log('CSV Data length:', reportData.csv_data.length);
       
       const csvHeaders = reportData.csv_headers.join(',');
       const csvRows = reportData.csv_data.map((row: any[]) => 
@@ -324,7 +308,6 @@ const ReportsPage: React.FC = () => {
         }).join(',')
       );
       const csvContent = [csvHeaders, ...csvRows].join('\n');
-      console.log('Generated CSV content length:', csvContent.length);
       
       const hasMultipleNSGs = selectedNSGs.length > 1;
       const reportName = reportTabs.find(tab => tab.id === reportType)?.name || reportType;
@@ -393,6 +376,8 @@ const ReportsPage: React.FC = () => {
         return;
       }
       
+      const nsgList = selectedNSGs.length > 0 ? selectedNSGs : (selectedNSG ? [selectedNSG] : []);
+  
       // Prepare schedule data
       const scheduleData = {
         report_type: scheduleEmailData.reportType,
@@ -401,7 +386,7 @@ const ReportsPage: React.FC = () => {
         time_of_day: scheduleEmailData.timeOfDay,
         subscription_id: selectedSubscription,
         resource_group: selectedResourceGroup,
-        selected_nsgs: selectedNSGs
+        nsg_names: nsgList
       };
       
       // Add frequency-specific data
@@ -878,4 +863,5 @@ const ReportsPage: React.FC = () => {
  };
 
 export default ReportsPage;
+
 

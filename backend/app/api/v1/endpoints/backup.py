@@ -4,10 +4,17 @@ from pydantic import BaseModel
 import csv
 import io
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
+
+from sqlalchemy.orm import Session
+from app.core.database import get_sync_db
+from app.models.backup import BackupSchedule
 
 from app.services.azure_service import AzureService
 from app.core.config import settings
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -17,9 +24,12 @@ class BackupCreateRequest(BaseModel):
     subscription_id: str
     resource_group: Optional[str] = None
     selected_nsgs: List[str]
+    selected_asgs: Optional[List[str]] = []
     storage_account: str
     container_name: str
     backup_format: str = "json"
+    frequency: str = "once"
+    selectedTime: Optional[str] = None
 
 class ExportRequest(BaseModel):
     selectedSubscription: str
@@ -52,7 +62,7 @@ class RestoreRequest(BaseModel):
     target_resource_groups: List[str]
     target_type: str
     create_new_nsgs: bool = False
-    new_nsg_names: List[Dict[str, Any]] = []
+    new_nsg_names: Optional[List[Dict[str, str]]] = None  # List of {original, new, resourceGroup}
     overwrite_existing: bool = False
     validate_rules: bool = False
     create_backup_before_restore: bool = False
@@ -63,10 +73,51 @@ class RestoreRequest(BaseModel):
 @router.post("/create")
 async def create_backup(
     request: BackupCreateRequest,
-    azure_service: AzureService = Depends(lambda: AzureService())
+    azure_service: AzureService = Depends(lambda: AzureService()),
+    db: Session = Depends(get_sync_db)
 ):
     """Create a backup of selected NSGs"""
     try:
+        # Handle Scheduling
+        if request.frequency and request.frequency != 'once':
+            # Calculate start time
+            start_time = datetime.utcnow()
+            if request.selectedTime:
+                try:
+                    # Try parsing ISO format or handle JS date string
+                    start_time = datetime.fromisoformat(request.selectedTime.replace('Z', '+00:00'))
+                except:
+                    pass
+            
+            # Create schedule record
+            schedule = BackupSchedule(
+                name=request.backup_name,
+                frequency=request.frequency,
+                start_time=start_time,
+                next_run=start_time, 
+                resource_type=request.resource_type,
+                subscription_id=request.subscription_id,
+                resource_group=request.resource_group,
+                selected_items=request.selected_nsgs,
+                storage_account=request.storage_account,
+                container_name=request.container_name,
+                backup_format=request.backup_format
+            )
+            db.add(schedule)
+            db.commit()
+            db.refresh(schedule)
+            
+            # Add to APScheduler
+            from app.services.scheduler_service import scheduler_service
+            scheduler_service.add_job(schedule.id)
+            
+            return {
+                "success": True,
+                "message": f"Backup scheduled successfully (ID: {schedule.id})",
+                "schedule_id": schedule.id
+            }
+
+        # Immediate Execution
         results = []
         errors = []
         
@@ -75,11 +126,16 @@ async def create_backup(
                 # Fetch NSG data
                 rg = request.resource_group
                 if not rg:
-                    # Try to find NSG or error. For now, skipping if no RG.
-                    pass 
+                    # Try to find NSG in subscription if RG is not provided
+                    rg = await azure_service.find_nsg_resource_group(nsg_name, request.subscription_id)
+                    if not rg:
+                        logger.error(f"NSG {nsg_name} not found in subscription")
+                        errors.append(f"NSG {nsg_name} not found in subscription")
+                        continue
                 
-                nsg_data = await azure_service.get_nsg(rg, nsg_name)
+                nsg_data = await azure_service.get_nsg(rg, nsg_name, subscription_id=request.subscription_id)
                 if not nsg_data:
+                    logger.error(f"NSG {nsg_name} not found in RG {rg}")
                     errors.append(f"NSG {nsg_name} not found")
                     continue
                 
@@ -88,28 +144,28 @@ async def create_backup(
                     nsg_data, 
                     f"{request.backup_name}-{nsg_name}", 
                     request.container_name, 
-                    request.backup_format
+                    request.backup_format,
+                    storage_account_name=request.storage_account
                 )
                 
                 if backup_url:
                     results.append(backup_url)
-                else:
-                    errors.append(f"Failed to create backup for {nsg_name}")
                     
             except Exception as e:
+                logger.error(f"Exception during backup loop for {nsg_name}: {e}")
                 errors.append(f"Error backing up {nsg_name}: {str(e)}")
         
         if not results and errors:
-            raise HTTPException(status_code=500, detail=f"Backup failed: {'; '.join(errors)}")
+            error_msg = f"Backup failed: {'; '.join(errors)}"
+            logger.error(f"Raising 500: {error_msg}")
+            raise HTTPException(status_code=500, detail=error_msg)
             
-        return {
-            "success": True, 
-            "backup_file": results[0] if results else None,
-            "count": len(results),
-            "errors": errors
-        }
+        return results
         
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Unexpected error in backup endpoint: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/export")
@@ -124,9 +180,11 @@ async def export_backup(
         for nsg_name in request.selectedNSGs:
             rg = request.selectedResourceGroup
             if not rg:
-                pass
+                rg = await azure_service.find_nsg_resource_group(nsg_name, request.selectedSubscription)
+                if not rg:
+                    continue
             
-            nsg_data = await azure_service.get_nsg(rg, nsg_name)
+            nsg_data = await azure_service.get_nsg(rg, nsg_name, subscription_id=request.selectedSubscription)
             if nsg_data:
                 all_nsg_data.append(nsg_data)
         
@@ -415,9 +473,28 @@ async def confirm_restore(
         
         # If rules are not provided in request (e.g. from preview), parse from CSV
         if not rules_to_restore and request.csv_file:
+            # Check for Excel file signature (PK matches the first two bytes of a zip/xlsx file)
+            if request.csv_file.startswith("PK"):
+                return {
+                    "success": False,
+                    "message": "It looks like you uploaded an Excel file (.xlsx). Please convert it to CSV format first.",
+                    "details": ["The file content starts with 'PK', indicating a binary file format like Excel."],
+                    "restored_rules_count": 0,
+                    "nsgs_created": 0
+                }
+
             # Parse CSV content
             csv_reader = csv.DictReader(io.StringIO(request.csv_file))
             rules_to_restore = list(csv_reader)
+            
+            if not rules_to_restore:
+                 return {
+                    "success": False,
+                    "message": "CSV file appears to be empty or contains no data rows.",
+                    "details": [],
+                    "restored_rules_count": 0,
+                    "nsgs_created": 0
+                }
             
         restored_count = 0
         rules_processed_count = 0
@@ -505,6 +582,15 @@ async def confirm_restore(
             else:
                 nsg_rules[nsg_name]["outbound"].append(rule_obj)
         
+        if not nsg_rules and rules_to_restore:
+             return {
+                "success": False,
+                "message": "No valid rules found. Please ensure your CSV contains an 'NSG Name' column and valid rule definitions.",
+                "details": ["Parsed rules but found no valid NSG names. Check your CSV headers."],
+                "restored_rules_count": 0,
+                "nsgs_created": 0
+            }
+
         results = []
         
         # Process each NSG
@@ -518,9 +604,22 @@ async def confirm_restore(
                 # Convert to list of dicts if it's not already (it's a list of Pydantic models)
                 mappings = [m.dict() if hasattr(m, 'dict') else m for m in request.new_nsg_names]
                 
+                # Strict mapping: Match by 'original' name
                 strict_mappings = [m for m in mappings if m.get("original") == nsg_name]
+                
+                # Loose mapping: If no strict match, and we only have 1 source NSG (common case),
+                # assume the user wants to apply these configs to this NSG.
+                # The frontend often sends {resourceGroup, nsgName} without 'original' when creating new custom names.
+                if not strict_mappings and len(nsg_rules) == 1:
+                    # Check if the mapping doesn't have 'original' specified (meaning it's a generic target config)
+                    strict_mappings = [m for m in mappings if not m.get("original")]
+
                 for m in strict_mappings:
                     mapped = True
+                    # Check if this mapping applies to the current RG loop? 
+                    # No, new_nsg_names DEFINES the target RG and Name.
+                    # We should add it to targets.
+                    
                     targets.append({
                         "rg": m.get("resourceGroup"),
                         "nsg": m.get("new") or m.get("nsgName") or nsg_name,
@@ -531,9 +630,38 @@ async def confirm_restore(
             # Strategy 2: Implicit/Broadcast (if no explicit mapping found)
             if not mapped and request.target_resource_groups:
                 for rg in request.target_resource_groups:
+                    target_nsg_name = nsg_name
+                    # If creating new NSG and no explicit mapping, append suffix to avoid overwrite if same RG
+                    # But only if the user requested creation. 
+                    # Note: We can't easily check if RG is "same" as source because source RG might not be known or irrelevant.
+                    # Best effort: If create is True, we should probably ensure unique name OR trust user wants overwrite.
+                    # Current issue: User expects "Create" to create a NEW file, not overwrite.
+                    # Let's append a suffix if it's likely to be a collision or if they want "Create New" behavior explicitly.
+                    
+                    if request.create_new_nsgs:
+                        # Check if we should append suffix. 
+                        # Simple heuristic: If we are restoring to an RG, and we want to create new, 
+                        # we should ensure we don't just silently overwrite.
+                        # However, idempotency is also good.
+                        # Let's add a suffix "-restored" if it's not already there, to be safe?
+                        # Or better: let's verify if the NSG exists first? No, that's slow.
+                        
+                        # Fix: If the user specifically asked to CREATE NEW NSGs but didn't provide a name,
+                        # and we are just using the original name, we might be overwriting.
+                        # Let's append -restored-{timestamp} to guarantee a new file if that's what "Create New" implies in this context.
+                        # BUT, usually "Create New" just means "Ensure it exists".
+                        # The user's complaint "I can't see any new file" suggests they expect a separate artifact.
+                        
+                        # Let's append a suffix to the name if it creates a collision (same name).
+                        # Since we don't know the source RG for sure (it's in the CSV row maybe?), let's just append "-restored" 
+                        # to distinguish it, if the user hasn't provided a mapping.
+                        import time
+                        timestamp = int(time.time())
+                        target_nsg_name = f"{nsg_name}-restored-{timestamp}"
+
                     targets.append({
                         "rg": rg,
-                        "nsg": nsg_name, # Keep same name
+                        "nsg": target_nsg_name, 
                         "location": "eastus",
                         "create": request.create_new_nsgs
                     })
@@ -547,26 +675,35 @@ async def confirm_restore(
                 target_nsg_name = target["nsg"]
                 location = target["location"]
                 
-                if target.get("create"):
-                    # Create NSG if it doesn't exist
-                    await azure_service.create_nsg(
-                        resource_group=target_rg,
-                        nsg_name=target_nsg_name,
-                        location=location
-                    )
-                    nsgs_created_count += 1
+                try:
+                    if target.get("create"):
+                        # Create NSG if it doesn't exist
+                        await azure_service.create_nsg(
+                            resource_group=target_rg,
+                            nsg_name=target_nsg_name,
+                            location=location
+                        )
+                        nsgs_created_count += 1
+                except Exception as e:
+                    results.append(f"Failed to create NSG {target_nsg_name} in {target_rg}: {str(e)}")
+                    continue
 
                 # Update rules
                 # Call Azure Service
-                await azure_service.update_nsg_rules(
+                success, error_msg, nsg_id = await azure_service.update_nsg_rules(
                     resource_group=target_rg,
                     nsg_name=target_nsg_name,
                     inbound_rules=rules["inbound"],
                     outbound_rules=rules["outbound"]
                 )
-                results.append(f"Restored {nsg_name} to {target_nsg_name} in {target_rg}")
-                restored_count += 1
-                rules_processed_count += len(rules["inbound"]) + len(rules["outbound"])
+                
+                if success:
+                    portal_link = f"https://portal.azure.com/#resource{nsg_id}" if nsg_id else "ID unavailable"
+                    results.append(f"Restored {nsg_name} to {target_nsg_name} in {target_rg}. Resource ID: {nsg_id}. Link: {portal_link}")
+                    restored_count += 1
+                    rules_processed_count += len(rules["inbound"]) + len(rules["outbound"])
+                else:
+                    results.append(f"Failed to restore rules for {target_nsg_name} in {target_rg}: {error_msg or 'Unknown error'}")
 
         return {
             "success": True,
@@ -580,7 +717,6 @@ async def confirm_restore(
         # print(f"Restore Error: {e}")
         # traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-
 
 
 

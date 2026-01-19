@@ -4,7 +4,7 @@ import sys
 from passlib.context import CryptContext
 from sqlalchemy import select
 from app.core.database import AsyncSessionLocal, engine, Base
-from app.models.user import User
+from app.models import User, NSG, BackupSchedule, Agent, EmailLog
 
 # Add parent dir to path if needed
 sys.path.append(os.getcwd())
