@@ -1,0 +1,10 @@
+$env:PYTHONPATH = "D:\AI project\NSG-Tool-01\backend"
+$env:ENVIRONMENT = "development"
+$env:DEBUG = "true"
+$env:LOG_LEVEL = "INFO"
+$env:SECRET_KEY = "cloudopsai-super-secret-key-2024-change-in-production"
+$env:SESSION_SECRET = "cloudopsai-session-secret-2024"
+$env:JWT_SECRET = "cloudopsai-jwt-secret-2024"
+$env:DATABASE_URL = "sqlite+aiosqlite:///./sql_app.db"
+Set-Location "D:\AI project\NSG-Tool-01\backend"
+& "..\backend\venv\Scripts\python.exe" -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8007

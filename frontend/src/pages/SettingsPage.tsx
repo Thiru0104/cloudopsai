@@ -42,6 +42,7 @@ const SettingsPage: React.FC = () => {
   const [displaySettings, setDisplaySettings] = useState({
     showStorage: localStorage.getItem('showStorage') !== 'false',
     showNSG: localStorage.getItem('showNSG') !== 'false',
+    showAIAgents: localStorage.getItem('showAIAgents') === 'true', // Disabled by default as requested
   });
 
   const [emailConfig, setEmailConfig] = useState({
@@ -67,13 +68,15 @@ const SettingsPage: React.FC = () => {
     backupStatus: true,
   });
 
-  const handleDisplaySettingChange = (key: 'showStorage' | 'showNSG', value: boolean) => {
+  const handleDisplaySettingChange = (key: 'showStorage' | 'showNSG' | 'showAIAgents', value: boolean) => {
     const newSettings = { ...displaySettings, [key]: value };
     setDisplaySettings(newSettings);
     localStorage.setItem(key, String(value));
     // Dispatch event for Layout to listen
     window.dispatchEvent(new Event('displaySettingsChanged'));
-    toast.success(`${key === 'showStorage' ? 'Storage' : 'NSG'} module ${value ? 'enabled' : 'disabled'}`);
+    
+    const moduleName = key === 'showStorage' ? 'Storage' : key === 'showNSG' ? 'NSG' : 'AI Agents';
+    toast.success(`${moduleName} module ${value ? 'enabled' : 'disabled'}`);
   };
 
   useEffect(() => {
@@ -83,7 +86,7 @@ const SettingsPage: React.FC = () => {
       try {
         if (activeTab === 'users') {
           console.log('Fetching users...');
-          const data = await apiClient.get('/api/v1/users/');
+          const data = await apiClient.get('/api/v1/users');
           console.log('Raw users data:', data);
           if (Array.isArray(data)) {
              const mappedUsers = data.map((u: any) => ({
@@ -175,7 +178,7 @@ const SettingsPage: React.FC = () => {
         is_superuser: newUser.role === 'Admin'
       };
 
-      const res = await apiClient.post('/api/v1/users/', payload);
+      const res = await apiClient.post('/api/v1/users', payload);
       
       // The backend returns the user object directly, not wrapped in { success, user }
       if (res && res.id) {
@@ -830,6 +833,18 @@ const SettingsPage: React.FC = () => {
                       className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
                       checked={displaySettings.showNSG}
                       onChange={(e) => handleDisplaySettingChange('showNSG', e.target.checked)}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+                    <div>
+                      <div className="font-semibold text-slate-900">Show AI Agents Module</div>
+                      <div className="text-sm text-slate-600">Enable or disable the AI Agents module in the sidebar</div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                      checked={displaySettings.showAIAgents}
+                      onChange={(e) => handleDisplaySettingChange('showAIAgents', e.target.checked)}
                     />
                   </div>
                 </div>

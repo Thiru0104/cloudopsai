@@ -48,16 +48,16 @@ export const exportToCSV = (data: ExportData) => {
     csvContent.push([]);
   }
   
-  // AI Recommendations section (excluding ready-to-implement rules)
+  // AI Recommendations section
   if (data.recommendations && data.recommendations.length > 0) {
     const filteredRecommendations = data.recommendations.filter(rec => 
-      rec.type !== 'READY_TO_IMPLEMENT' && 
-      rec.type !== 'OPTIMIZATION' && 
-      rec.type !== 'CONSOLIDATION'
+      rec.type !== 'READY_TO_IMPLEMENT' &&
+      rec.type !== 'REDUNDANT_RULE' &&
+      !String(rec.title || '').toLowerCase().includes('redundant')
     );
     
     if (filteredRecommendations.length > 0) {
-      csvContent.push(['AI RECOMMENDATIONS']);
+      csvContent.push(['AI PROPOSED ACTIONABLE RECOMMENDATION']);
       csvContent.push(['Title', 'Type', 'Priority', 'Description', 'Impact', 'Implementation']);
       filteredRecommendations.forEach(rec => {
         csvContent.push([
@@ -76,9 +76,9 @@ export const exportToCSV = (data: ExportData) => {
   // Duplicate IPs section
   if (data.aiAnalysis?.duplicateIps && data.aiAnalysis.duplicateIps.length > 0) {
     csvContent.push(['DUPLICATE IP ADDRESSES']);
-    csvContent.push(['IP Address', 'Usage Count', 'Severity', 'Rules', 'Recommendation']);
+    csvContent.push(['IP Address', 'Usage Count', 'Severity', 'Rules (Name - Priority)', 'Recommendation']);
     data.aiAnalysis.duplicateIps.forEach((dup: any) => {
-      const ruleNames = dup.rules.map((r: any) => r.ruleName).join('; ');
+      const ruleNames = dup.rules.map((r: any) => `${r.ruleName} (P${r.priority})`).join('; ');
       csvContent.push([
         dup.ipAddress,
         (dup.usageCount !== undefined && dup.usageCount !== null) ? dup.usageCount.toString() : '0',
@@ -96,14 +96,68 @@ export const exportToCSV = (data: ExportData) => {
     csvContent.push(['Network 1', 'Network 2', 'Overlap Type', 'Severity', 'Recommendation']);
     data.aiAnalysis.cidrOverlaps.forEach((overlap: any) => {
       csvContent.push([
-        `${overlap.network1.cidr} (${overlap.network1.ruleName})`,
-        `${overlap.network2.cidr} (${overlap.network2.ruleName})`,
+        `${overlap.network1.cidr} (${overlap.network1.ruleName} - P${overlap.network1.priority})`,
+        `${overlap.network2.cidr} (${overlap.network2.ruleName} - P${overlap.network2.priority})`,
         overlap.overlapType,
         overlap.severity,
         overlap.recommendation
       ]);
     });
     csvContent.push([]);
+  }
+
+  // Redundant rules are intentionally excluded from report output
+
+  // Consolidation Opportunities section
+  if (data.aiAnalysis?.consolidationOpportunities && data.aiAnalysis.consolidationOpportunities.length > 0) {
+    csvContent.push(['CONSOLIDATION OPPORTUNITIES']);
+    csvContent.push(['Type', 'Priority', 'Description', 'Affected Rules', 'Rule Reduction', 'Recommendation']);
+    data.aiAnalysis.consolidationOpportunities.forEach((opp: any) => {
+      csvContent.push([
+        opp.type || 'General',
+        opp.priority || 'Medium',
+        opp.description || 'No description',
+        (opp.rules && Array.isArray(opp.rules)) ? opp.rules.map((r: any) => `${r.name} (P${r.priority})`).join('; ') : 'N/A',
+        (opp.potentialSavings?.ruleReduction !== undefined) ? opp.potentialSavings.ruleReduction.toString() : '0',
+        opp.recommendation || ''
+      ]);
+    });
+    csvContent.push([]);
+  }
+
+  // Rule Optimization section
+  if (data.aiAnalysis?.ruleOptimization) {
+    const ruleOpt = data.aiAnalysis.ruleOptimization;
+    
+    if (ruleOpt.rulesToRemove && ruleOpt.rulesToRemove.length > 0) {
+      csvContent.push(['RULES TO REMOVE']);
+      csvContent.push(['Rule Name', 'Source IP', 'Dest IP', 'Ports', 'Protocol', 'Reason']);
+      ruleOpt.rulesToRemove.forEach((rule: any) => {
+        csvContent.push([
+          rule.name || 'Unknown',
+          rule.sourceIp || 'Any',
+          rule.destinationIp || 'Any',
+          rule.ports || 'Any',
+          rule.protocol || 'Any',
+          rule.reason || 'Optimization'
+        ]);
+      });
+      csvContent.push([]);
+    }
+    
+    if (ruleOpt.rulesToModify && ruleOpt.rulesToModify.length > 0) {
+      csvContent.push(['RULES TO MODIFY']);
+      csvContent.push(['Rule Name', 'Current Config', 'Recommended Config', 'Impact']);
+      ruleOpt.rulesToModify.forEach((rule: any) => {
+        csvContent.push([
+          rule.name || 'Unknown',
+          rule.currentConfig || 'Current',
+          rule.recommendedConfig || 'Recommended',
+          rule.impact || 'Security Enhancement'
+        ]);
+      });
+      csvContent.push([]);
+    }
   }
   
   // Security Risks section
@@ -141,10 +195,12 @@ export const exportToCSV = (data: ExportData) => {
   document.body.removeChild(link);
 };
 
-export const exportToPDF = (data: ExportData) => {
+export const exportToPDF = (data: ExportData, limit: number = 15) => {
   const doc = new jsPDF('landscape', 'mm', 'a4'); // Use landscape orientation for better content coverage
   
   let yPosition = 20;
+  let recCounter = 1;
+  const getNextRecId = () => `[REC-${String(recCounter++).padStart(2, '0')}] `;
   const pageWidth = doc.internal.pageSize.width;
   const pageHeight = doc.internal.pageSize.height;
   const margin = 20;
@@ -206,6 +262,222 @@ export const exportToPDF = (data: ExportData) => {
   doc.text(`Recommendations: ${recommendationCount}`, pageWidth / 2 + 10, yPosition + 50);
   
   yPosition += 80;
+
+  // IP & ASG Usage Analysis
+  if (data.aiAnalysis) {
+    addSectionHeader('IP & ASG Usage Analysis', [52, 152, 219]);
+    
+    // Inbound Rules Box
+    doc.setFillColor(248, 249, 250);
+    doc.rect(20, yPosition, pageWidth - 40, 35, 'F');
+    doc.setDrawColor(189, 195, 199);
+    doc.rect(20, yPosition, pageWidth - 40, 35, 'S');
+
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(46, 204, 113); // Green for Inbound
+    doc.text(`↗ Inbound Rules (${data.inboundRules || 0})`, 25, yPosition + 8);
+    
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    
+    const colWidth = (pageWidth - 50) / 4;
+    const inStats = data.aiAnalysis.inboundStats || { sourceIpsAsgs: data.aiAnalysis.sourceIpsCount || 0, destIpsAsgs: data.aiAnalysis.destinationIpsCount || 0, sourceAsgs: 0, destAsgs: 0 };
+    
+    doc.text('Source IPs + ASGs', 25, yPosition + 18);
+    doc.setFontSize(14); doc.setFont('helvetica', 'bold');
+    doc.text(`${inStats.sourceIpsAsgs}`, 25, yPosition + 25);
+    
+    doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+    doc.text('Destination IPs + ASGs', 25 + colWidth, yPosition + 18);
+    doc.setFontSize(14); doc.setFont('helvetica', 'bold');
+    doc.text(`${inStats.destIpsAsgs}`, 25 + colWidth, yPosition + 25);
+    
+    doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+    doc.text('Source ASGs', 25 + colWidth * 2, yPosition + 18);
+    doc.setFontSize(14); doc.setFont('helvetica', 'bold');
+    doc.text(`${inStats.sourceAsgs}`, 25 + colWidth * 2, yPosition + 25);
+    
+    doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+    doc.text('Destination ASGs', 25 + colWidth * 3, yPosition + 18);
+    doc.setFontSize(14); doc.setFont('helvetica', 'bold');
+    doc.text(`${inStats.destAsgs}`, 25 + colWidth * 3, yPosition + 25);
+
+    yPosition += 45;
+
+    // Outbound Rules Box
+    doc.setFillColor(248, 249, 250);
+    doc.rect(20, yPosition, pageWidth - 40, 35, 'F');
+    doc.setDrawColor(189, 195, 199);
+    doc.rect(20, yPosition, pageWidth - 40, 35, 'S');
+
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(231, 76, 60); // Red for Outbound
+    doc.text(`↙ Outbound Rules (${data.outboundRules || 0})`, 25, yPosition + 8);
+    
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    
+    const outStats = data.aiAnalysis.outboundStats || { sourceIpsAsgs: 0, destIpsAsgs: 0, sourceAsgs: 0, destAsgs: 0 };
+    
+    doc.text('Source IPs + ASGs', 25, yPosition + 18);
+    doc.setFontSize(14); doc.setFont('helvetica', 'bold');
+    doc.text(`${outStats.sourceIpsAsgs}`, 25, yPosition + 25);
+    
+    doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+    doc.text('Destination IPs + ASGs', 25 + colWidth, yPosition + 18);
+    doc.setFontSize(14); doc.setFont('helvetica', 'bold');
+    doc.text(`${outStats.destIpsAsgs}`, 25 + colWidth, yPosition + 25);
+    
+    doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+    doc.text('Source ASGs', 25 + colWidth * 2, yPosition + 18);
+    doc.setFontSize(14); doc.setFont('helvetica', 'bold');
+    doc.text(`${outStats.sourceAsgs}`, 25 + colWidth * 2, yPosition + 25);
+    
+    doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+    doc.text('Destination ASGs', 25 + colWidth * 3, yPosition + 18);
+    doc.setFontSize(14); doc.setFont('helvetica', 'bold');
+    doc.text(`${outStats.destAsgs}`, 25 + colWidth * 3, yPosition + 25);
+    
+    yPosition += 45;
+  }
+
+  // IP Address Consolidation Section
+  if (data.aiAnalysis?.consolidationOpportunities && data.aiAnalysis.consolidationOpportunities.length > 0) {
+    addSectionHeader('IP Address Consolidation', [22, 160, 133]);
+    
+    // Slice to top N groups to avoid massive PDFs
+    const topConsolidations = data.aiAnalysis.consolidationOpportunities.slice(0, limit);
+    if (data.aiAnalysis.consolidationOpportunities.length > limit) {
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'italic');
+      doc.setTextColor(100, 100, 100);
+      doc.text(`Note: Displaying top ${limit} out of ${data.aiAnalysis.consolidationOpportunities.length} consolidation groups. See CSV for full list.`, 25, yPosition);
+      yPosition += 12;
+    }
+    
+    let totalConsolidationRuleSlotsSaved = 0;
+    
+    topConsolidations.forEach((opp: any) => {
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(0, 0, 0);
+      doc.text(`Consolidation Group: ${opp.recommendedCidr || opp.type || 'Suggested Merge'}`, 25, yPosition);
+      yPosition += 8;
+
+      let firstDirection = 'Inbound';
+      let firstPorts = '*';
+      let firstPriority = 100;
+
+      const oppData = (opp.rules || []).map((rInfo: any) => {
+        const rName = typeof rInfo === 'string' ? rInfo : (rInfo.ruleName || rInfo.name || '[Unknown Rule]');
+        // Fallback: Check original rule data to guarantee we don't have empty cells
+        const fullRuleData = data.rules?.find((r: any) => r.name === rName);
+        const ruleDetails = data.aiAnalysis.ipInventory?.ipDetails?.find((d: any) => d.ruleName === rName);
+        
+        const priority = typeof rInfo !== 'string' && rInfo.priority ? rInfo.priority : (ruleDetails?.priority || fullRuleData?.priority || '-');
+        
+        let sourceIp = '-';
+        if (typeof rInfo !== 'string' && rInfo.sourceIp) sourceIp = rInfo.sourceIp;
+        else if (ruleDetails?.type === 'source') sourceIp = ruleDetails.ipAddress;
+        else if (fullRuleData?.sourceAddressPrefix) sourceIp = fullRuleData.sourceAddressPrefix;
+        
+        let destIp = '-';
+        if (typeof rInfo !== 'string' && rInfo.destinationIp) destIp = rInfo.destinationIp;
+        else if (ruleDetails?.type === 'destination') destIp = ruleDetails.ipAddress;
+        else if (fullRuleData?.destinationAddressPrefix) destIp = fullRuleData.destinationAddressPrefix;
+        
+        const ports = typeof rInfo !== 'string' && rInfo.port ? rInfo.port : (ruleDetails?.ports?.destinationPorts || ruleDetails?.ports?.sourcePorts || fullRuleData?.destinationPortRange || '-');
+        const direction = typeof rInfo !== 'string' && rInfo.direction ? rInfo.direction : (ruleDetails?.direction || fullRuleData?.direction || '-');
+        
+        if (priority !== '-' && parseInt(priority.toString()) < 3501) firstPriority = Math.min(firstPriority, parseInt(priority.toString()) - 1);
+        if (direction !== '-') firstDirection = direction;
+        if (ports !== '-') firstPorts = ports;
+
+        return [ rName, priority, sourceIp, destIp, ports, direction ];
+      });
+
+      autoTable(doc, {
+        head: [['Rule Name', 'Priority', 'Source IP', 'Destination IP', 'Ports', 'Direction']],
+        body: oppData,
+        startY: yPosition,
+        styles: { fontSize: 7, cellPadding: 3, lineColor: [189, 195, 199], lineWidth: 0.1, overflow: 'linebreak' },
+        headStyles: { fillColor: [22, 160, 133], textColor: [255, 255, 255], fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [232, 246, 243] },
+        columnStyles: {
+          0: { cellWidth: 50 },
+          1: { cellWidth: 15 },
+          2: { cellWidth: 50 }, // Adjusted to prevent overflow
+          3: { cellWidth: 50 }, // Adjusted to prevent overflow
+          4: { cellWidth: 35 },
+          5: { cellWidth: 20 }
+        }
+      });
+      
+      yPosition = doc.lastAutoTable.finalY + 10;
+      
+      // Check proposed rules from AI, or construct one manually
+      const proposed = opp.proposedRules?.[0] || {};
+      const newName = String(proposed.ruleName || `Consolidated-IPs-${firstPriority}`);
+      let newSrc = String(proposed.sourceAddress || (firstDirection === 'Inbound' ? (opp.recommendedCidr || opp.type || '*') : '*'));
+      let newDest = String(proposed.destinationAddress || (firstDirection === 'Outbound' ? (opp.recommendedCidr || opp.type || '*') : '*'));
+      const newPorts = String(proposed.destinationPort || firstPorts || '*');
+      const newPriority = String(proposed.priority || Math.max(100, firstPriority));
+      const newDirection = String(proposed.direction || firstDirection || 'Inbound');
+
+      // Reconstruct IPs if the LLM truncated them with "..."
+      if (newSrc.includes('...')) {
+        const allSrcs = Array.from(new Set(oppData.map(d => d[2]).filter(ip => ip && ip !== '*' && ip !== '-')));
+        if (allSrcs.length > 0) newSrc = allSrcs.join(', ');
+      }
+      if (newDest.includes('...')) {
+        const allDests = Array.from(new Set(oppData.map(d => d[3]).filter(ip => ip && ip !== '*' && ip !== '-')));
+        if (allDests.length > 0) newDest = allDests.join(', ');
+      }
+
+      // Use autoTable for the recommendation block to prevent text squishing/overlapping
+      autoTable(doc, {
+        head: [[`${getNextRecId()}Recommendation - Implement the following rule and delete the above:`]],
+        body: [
+          [`Rule Name: ${newName}\nPriority: ${newPriority}    Direction: ${newDirection}    Ports: ${newPorts}\nSource: ${newSrc}\nDestination: ${newDest}`]
+        ],
+        startY: yPosition,
+        styles: { 
+          fontSize: 9, 
+          cellPadding: 4, 
+          lineColor: [22, 160, 133], 
+          lineWidth: 0.5,
+          overflow: 'linebreak',
+          cellWidth: 'wrap'
+        },
+        headStyles: { 
+          fillColor: [248, 249, 250], 
+          textColor: [22, 160, 133], 
+          fontStyle: 'bold' 
+        },
+        bodyStyles: {
+          fillColor: [248, 249, 250],
+          textColor: [0, 0, 0]
+        }
+      });
+      
+      yPosition = doc.lastAutoTable.finalY + 10;
+      
+      totalConsolidationRuleSlotsSaved += Math.max(0, (opp.rules?.length || 0) - 1);
+      
+      checkPageBreak(50);
+    });
+    
+    // Print summary at the end of the section
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(22, 160, 133);
+    doc.text(`Consolidation Summary: Saved ${totalConsolidationRuleSlotsSaved} Rule Slots`, 25, yPosition);
+    yPosition += 15;
+  }
   
   // Violations section
   if (data.violations && data.violations.length > 0) {
@@ -249,37 +521,39 @@ export const exportToPDF = (data: ExportData) => {
     yPosition = doc.lastAutoTable.finalY + 15;
   }
   
-  // AI Recommendations section (excluding ready-to-implement rules)
-  if (data.recommendations && data.recommendations.length > 0) {
-    const filteredRecommendations = data.recommendations.filter(rec => 
-      rec.type !== 'READY_TO_IMPLEMENT' && 
-      rec.type !== 'OPTIMIZATION' && 
-      rec.type !== 'CONSOLIDATION'
+  // AI Recommendations section
+  if (data.recommendations) {
+    const filteredRecommendations = (data.recommendations || []).filter(rec => 
+      rec.type !== 'READY_TO_IMPLEMENT' &&
+      rec.type !== 'REDUNDANT_RULE' &&
+      !String(rec.title || '').toLowerCase().includes('redundant')
     );
     
-    if (filteredRecommendations.length > 0) {
-      addSectionHeader('AI-Powered Recommendations', [46, 204, 113]);
-      
-      const recData = filteredRecommendations.map(rec => {
-        const priorityColor = rec.priority === 'high' ? '🔴' : rec.priority === 'medium' ? '🟡' : '🟢';
-        return [
-          rec.title ? (rec.title.length > 35 ? rec.title.substring(0, 35) + '...' : rec.title) : 'No title',
-          rec.type || 'General',
-          `${priorityColor} ${rec.priority || 'Medium'}`,
-          rec.description ? (rec.description.length > 50 ? rec.description.substring(0, 50) + '...' : rec.description) : 'No description',
-          rec.impact || 'Not specified'
-        ];
-      });
+    addSectionHeader('AI proposed actionable recommendation', [46, 204, 113]);
+    
+    const recData = filteredRecommendations.length > 0 
+      ? filteredRecommendations.map(rec => {
+          const priorityColor = rec.priority === 'high' ? '🔴' : rec.priority === 'medium' ? '🟡' : '🟢';
+          return [
+            `${getNextRecId()}${rec.title || 'No title'}`,
+            rec.type || 'General',
+            `${priorityColor} ${rec.priority || 'Medium'}`,
+            rec.description || 'No description',
+            rec.impact || 'Not specified'
+          ];
+        })
+      : [['No actionable recommendations identified', '-', '-', '-', '-']];
       
       autoTable(doc, {
-        head: [['Recommendation', 'Category', 'Priority', 'Description', 'Impact']],
+        head: [['Recommendation', 'Category', 'Priority', 'Actionable Guidance', 'Impact']],
         body: recData,
         startY: yPosition,
         styles: { 
           fontSize: 9,
-          cellPadding: 3,
+          cellPadding: 4,
           lineColor: [189, 195, 199],
-          lineWidth: 0.1
+          lineWidth: 0.1,
+          overflow: 'linebreak'
         },
         headStyles: { 
           fillColor: [46, 204, 113],
@@ -290,16 +564,457 @@ export const exportToPDF = (data: ExportData) => {
           fillColor: [248, 249, 250]
         },
         columnStyles: {
-          0: { cellWidth: 45 },
+          0: { cellWidth: 40 },
           1: { cellWidth: 25 },
-          2: { cellWidth: 25 },
-          3: { cellWidth: 60 },
-          4: { cellWidth: 25 }
+          2: { cellWidth: 20 },
+          3: { cellWidth: 140 }, // Expand description column
+          4: { cellWidth: 35 }
         }
       });
       
       yPosition = doc.lastAutoTable.finalY + 15;
+
+      // Add proposed rules tables if available
+      filteredRecommendations.forEach(rec => {
+        if (rec.proposedRules && rec.proposedRules.length > 0) {
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(41, 128, 185);
+          doc.text(`Recommended Rules for: ${rec.title}`, 20, yPosition);
+          yPosition += 5;
+
+          const rulesData = rec.proposedRules.map((rule: any) => [
+            rule.nsgName || '-',
+            rule.ruleName || '-',
+            rule.direction || '-',
+            rule.priority || '-',
+            rule.access || '-',
+            rule.protocol || '-',
+            rule.sourcePort || '-',
+            rule.destinationPort || '-',
+            rule.sourceAddress || '-',
+            rule.destinationAddress || '-',
+            rule.sourceAsg || '-',
+            rule.destinationAsg || '-'
+          ]);
+
+          autoTable(doc, {
+          head: [['NSG Name', 'Rule Name', 'Direction', 'Priority', 'Access', 'Protocol', 'Source Port', 'Dest Port', 'Source Addr', 'Dest Addr', 'Source ASG', 'Dest ASG']],
+          body: rulesData,
+          startY: yPosition,
+          styles: { fontSize: 7, cellPadding: 2, lineColor: [189, 195, 199], lineWidth: 0.1, overflow: 'linebreak' },
+          headStyles: { fillColor: [41, 128, 185], textColor: [255, 255, 255], fontStyle: 'bold' },
+          alternateRowStyles: { fillColor: [240, 248, 255] },
+          columnStyles: {
+            0: { cellWidth: 15 },
+            1: { cellWidth: 20 },
+            2: { cellWidth: 12 },
+            3: { cellWidth: 10 },
+            4: { cellWidth: 10 },
+            5: { cellWidth: 12 },
+            6: { cellWidth: 12 },
+            7: { cellWidth: 12 },
+            8: { cellWidth: 25 },
+            9: { cellWidth: 25 },
+            10: { cellWidth: 10 },
+            11: { cellWidth: 10 }
+          }
+        });
+          yPosition = doc.lastAutoTable.finalY + 15;
+        }
+      });
+  }
+
+  // 1.5 Duplicate IPs Section - ENABLED
+  if (data.aiAnalysis?.duplicateIps && data.aiAnalysis.duplicateIps.length > 0) {
+    addSectionHeader('Duplicate IP Addresses', [230, 126, 34]); // Carrot Orange
+    
+    const topDuplicates = data.aiAnalysis.duplicateIps.slice(0, limit);
+    if (data.aiAnalysis.duplicateIps.length > limit) {
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'italic');
+      doc.setTextColor(100, 100, 100);
+      doc.text(`Note: Displaying top ${limit} out of ${data.aiAnalysis.duplicateIps.length} duplicate IP groups. See CSV for full list.`, 25, yPosition);
+      yPosition += 12;
     }
+    
+    let totalIpSlotsSaved = 0;
+    let totalRuleSlotsSaved = 0;
+
+    topDuplicates.forEach((dup: any) => {
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(0, 0, 0);
+      doc.text(`Duplicate IP Group: ${dup.ipAddress || 'Unknown'} (Used in ${dup.usageCount || 0} rules)`, 25, yPosition);
+      yPosition += 8;
+
+      let firstDirection = 'Inbound';
+      let firstPorts = '*';
+      let firstPriority = 100;
+
+      const rulesInfo = (dup.rules || []).map((rInfo: any) => {
+        const rName = typeof rInfo === 'string' ? rInfo : (rInfo.ruleName || rInfo.name || '[Unknown Rule]');
+        const ruleDetails = data.aiAnalysis.ipInventory?.ipDetails?.find((d: any) => d.ruleName === rName && d.ipAddress === dup.ipAddress);
+        const fullRuleData = data.rules?.find((r: any) => r.name === rName);
+        
+        const priority = rInfo.priority || ruleDetails?.priority || fullRuleData?.priority || '-';
+        const ports = ruleDetails?.ports?.destinationPorts || ruleDetails?.ports?.sourcePorts || fullRuleData?.destinationPortRange || '-';
+        const location = rInfo.location || rInfo.type || ruleDetails?.type || (fullRuleData?.direction === 'Inbound' ? 'source' : 'destination') || '-';
+        const direction = rInfo.direction || fullRuleData?.direction || 'Inbound';
+
+        if (priority !== '-' && parseInt(priority.toString()) < 3501) firstPriority = Math.min(firstPriority, parseInt(priority.toString()) - 1);
+        if (direction !== '-') firstDirection = direction;
+        if (ports !== '-') firstPorts = ports;
+
+        return [
+          rName,
+          priority,
+          dup.ipAddress || '-',
+          ports,
+          location
+        ];
+      });
+
+      const affectedData = rulesInfo.length > 0 ? rulesInfo : [[ '-', '-', dup.ipAddress || '-', '-', '-' ]];
+
+      autoTable(doc, {
+        head: [['Rule Name', 'Priority', 'IP Configuration to Change', 'Ports', 'Location']],
+        body: affectedData,
+        startY: yPosition,
+        styles: { fontSize: 8, cellPadding: 3, lineColor: [189, 195, 199], lineWidth: 0.1, overflow: 'linebreak' },
+        headStyles: { fillColor: [230, 126, 34], textColor: [255, 255, 255], fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [253, 246, 233] },
+        columnStyles: {
+          0: { cellWidth: 70 },
+          1: { cellWidth: 20 },
+          2: { cellWidth: 50 },
+          3: { cellWidth: 50 },
+          4: { cellWidth: 40 }
+        },
+        didParseCell: function(data) {
+          if (data.section === 'body' && data.column.index === 4) {
+            data.cell.styles.fontStyle = 'bold';
+            if (data.cell.raw === 'source') {
+              data.cell.styles.textColor = [46, 204, 113];
+            } else if (data.cell.raw === 'destination') {
+              data.cell.styles.textColor = [231, 76, 60];
+            }
+          }
+        }
+      });
+      
+      yPosition = doc.lastAutoTable.finalY + 10;
+      
+      const proposed = dup.proposedRules?.[0] || {};
+      const newName = String(proposed.ruleName || `Consolidated-${String(dup.ipAddress || '').replace(/\./g, '-')}`);
+      let newSrc = String(proposed.sourceAddress || (firstDirection === 'Inbound' ? dup.ipAddress : '*'));
+      let newDest = String(proposed.destinationAddress || (firstDirection === 'Outbound' ? dup.ipAddress : '*'));
+      const newPorts = String(proposed.destinationPort || firstPorts || '*');
+      const newPriority = String(proposed.priority || Math.max(100, firstPriority));
+      const newDirection = String(proposed.direction || firstDirection || 'Inbound');
+
+      // Reconstruct IPs if the LLM truncated them with "..."
+      if (newSrc.includes('...')) {
+        const allSrcs = Array.from(new Set(rulesInfo.map((d: any) => d[2]).filter((ip: any) => ip && ip !== '*' && ip !== '-')));
+        if (allSrcs.length > 0) newSrc = allSrcs.join(', ');
+      }
+      if (newDest.includes('...')) {
+        const allDests = Array.from(new Set(rulesInfo.map((d: any) => d[2]).filter((ip: any) => ip && ip !== '*' && ip !== '-')));
+        if (allDests.length > 0) newDest = allDests.join(', ');
+      }
+
+      const recommendationText = dup.recommendation ? dup.recommendation : `Consolidate rules using ${dup.ipAddress}`;
+
+      autoTable(doc, {
+        head: [[`${getNextRecId()}Recommendation - ${recommendationText}`]],
+        body: [
+          [`Rule Name: ${newName}\nPriority: ${newPriority}    Direction: ${newDirection}    Ports: ${newPorts}\nSource: ${newSrc}\nDestination: ${newDest}`]
+        ],
+        startY: yPosition,
+        styles: { 
+          fontSize: 9, 
+          cellPadding: 4, 
+          lineColor: [230, 126, 34], 
+          lineWidth: 0.5,
+          overflow: 'linebreak',
+          cellWidth: 'wrap'
+        },
+        headStyles: { 
+          fillColor: [253, 246, 233], 
+          textColor: [230, 126, 34], 
+          fontStyle: 'bold' 
+        },
+        bodyStyles: {
+          fillColor: [253, 246, 233],
+          textColor: [0, 0, 0]
+        }
+      });
+      
+      yPosition = doc.lastAutoTable.finalY + 10;
+
+      // Calculate savings for this group
+      const rulesSaved = Math.max(0, (dup.usageCount || 0) - 1);
+      totalRuleSlotsSaved += rulesSaved;
+      totalIpSlotsSaved += rulesSaved; // Roughly 1 IP slot saved per removed duplicate rule
+
+      checkPageBreak(50);
+    });
+
+    // Print summary at the end of the section
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(230, 126, 34);
+    doc.text(`Duplicate IPs Summary: Saved ${totalIpSlotsSaved} IP Address Slots, ${totalRuleSlotsSaved} Rule Slots`, 25, yPosition);
+    yPosition += 15;
+  }
+
+  // 1.6 CIDR Overlaps Section - ENABLED
+  if (data.aiAnalysis?.cidrOverlaps) {
+    const uniqueCidrOverlaps = Array.from(
+      new Map(
+        (data.aiAnalysis.cidrOverlaps || []).map((overlap: any) => {
+          const key = [
+            overlap?.network1?.ruleId,
+            overlap?.network1?.cidr,
+            overlap?.network2?.ruleId,
+            overlap?.network2?.cidr
+          ].join('|');
+          return [key, overlap];
+        })
+      ).values()
+    );
+
+    addSectionHeader('CIDR Overlaps', [155, 89, 182]); // Amethyst
+    
+    const topOverlaps = uniqueCidrOverlaps.slice(0, limit);
+    if (uniqueCidrOverlaps.length > limit) {
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'italic');
+      doc.setTextColor(100, 100, 100);
+      doc.text(`Note: Displaying top ${limit} out of ${uniqueCidrOverlaps.length} CIDR overlaps. See CSV for full list.`, 25, yPosition);
+      yPosition += 12;
+    }
+    
+    let totalCidrRuleSlotsSaved = 0;
+    
+    topOverlaps.forEach((overlap: any) => {
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(0, 0, 0);
+      doc.text(`CIDR Overlap: ${overlap.network1?.cidr || 'N/A'} ↔ ${overlap.network2?.cidr || 'N/A'} (${overlap.overlapType || 'Partial'})`, 25, yPosition);
+      yPosition += 8;
+
+      const rName1 = overlap.network1?.ruleName;
+      const rName2 = overlap.network2?.ruleName;
+      const ruleDetails1 = data.aiAnalysis.ipInventory?.ipDetails?.find((d: any) => d.ruleName === rName1);
+      const ruleDetails2 = data.aiAnalysis.ipInventory?.ipDetails?.find((d: any) => d.ruleName === rName2);
+      const fullRule1 = data.rules?.find((r: any) => r.name === rName1);
+      const fullRule2 = data.rules?.find((r: any) => r.name === rName2);
+      
+      const port1 = ruleDetails1?.ports?.destinationPorts || fullRule1?.destinationPortRange || '-';
+      const port2 = ruleDetails2?.ports?.destinationPorts || fullRule2?.destinationPortRange || '-';
+      const priority1 = overlap.network1?.priority || ruleDetails1?.priority || fullRule1?.priority || '-';
+      const priority2 = overlap.network2?.priority || ruleDetails2?.priority || fullRule2?.priority || '-';
+      
+      const affectedData = [
+        [rName1 || '-', priority1, overlap.network1?.cidr || '-', port1, overlap.network1?.location || '-'],
+        [rName2 || '-', priority2, overlap.network2?.cidr || '-', port2, overlap.network2?.location || '-']
+      ];
+
+      autoTable(doc, {
+        head: [['Rule Name', 'Priority', 'CIDR', 'Ports', 'Location']],
+        body: affectedData,
+        startY: yPosition,
+        styles: { fontSize: 8, cellPadding: 3, lineColor: [189, 195, 199], lineWidth: 0.1, overflow: 'linebreak' },
+        headStyles: { fillColor: [155, 89, 182], textColor: [255, 255, 255], fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [250, 245, 252] },
+        columnStyles: {
+          0: { cellWidth: 70 },
+          1: { cellWidth: 20 },
+          2: { cellWidth: 50 },
+          3: { cellWidth: 50 },
+          4: { cellWidth: 40 }
+        },
+        didParseCell: function(data) {
+          if (data.section === 'body' && data.column.index === 4) {
+            data.cell.styles.fontStyle = 'bold';
+            if (data.cell.raw === 'source') {
+              data.cell.styles.textColor = [46, 204, 113];
+            } else if (data.cell.raw === 'destination') {
+              data.cell.styles.textColor = [231, 76, 60];
+            }
+          }
+        }
+      });
+      
+      yPosition = doc.lastAutoTable.finalY + 10;
+      
+      const proposed = overlap.proposedRules?.[0] || {};
+      const newName = String(proposed.ruleName || `Consolidated-CIDR-Overlap`);
+      let newSrc = String(proposed.sourceAddress || '*');
+      let newDest = String(proposed.destinationAddress || '*');
+      const newPorts = String(proposed.destinationPort || '*');
+      const newPriority = String(proposed.priority || Math.min(Number(priority1) || 9999, Number(priority2) || 9999));
+      const newDirection = String(proposed.direction || 'Inbound');
+
+      // Reconstruct IPs if the LLM truncated them with "..."
+      if (newSrc.includes('...')) {
+        const allSrcs = Array.from(new Set(affectedData.map(d => d[2]).filter(ip => ip && ip !== '*' && ip !== '-')));
+        if (allSrcs.length > 0) newSrc = allSrcs.join(', ');
+      }
+      if (newDest.includes('...')) {
+        const allDests = Array.from(new Set(affectedData.map(d => d[2]).filter(ip => ip && ip !== '*' && ip !== '-')));
+        if (allDests.length > 0) newDest = allDests.join(', ');
+      }
+
+      const recommendationText = overlap.recommendation ? overlap.recommendation : `Review and consolidate overlapping CIDRs`;
+
+      autoTable(doc, {
+        head: [[`${getNextRecId()}Recommendation - ${recommendationText}`]],
+        body: [
+          [`Rule Name: ${newName}\nPriority: ${newPriority}    Direction: ${newDirection}    Ports: ${newPorts}\nSource: ${newSrc}\nDestination: ${newDest}`]
+        ],
+        startY: yPosition,
+        styles: { 
+          fontSize: 9, 
+          cellPadding: 4, 
+          lineColor: [155, 89, 182], 
+          lineWidth: 0.5,
+          overflow: 'linebreak',
+          cellWidth: 'wrap'
+        },
+        headStyles: { 
+          fillColor: [250, 245, 252], 
+          textColor: [155, 89, 182], 
+          fontStyle: 'bold' 
+        },
+        bodyStyles: {
+          fillColor: [250, 245, 252],
+          textColor: [0, 0, 0]
+        }
+      });
+      
+      yPosition = doc.lastAutoTable.finalY + 10;
+      
+      totalCidrRuleSlotsSaved += 1; // Assuming merging 2 rules into 1 saves 1 rule slot
+      
+      checkPageBreak(50);
+    });
+    
+    // Print summary at the end of the section
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(155, 89, 182);
+    doc.text(`CIDR Overlaps Summary: Saved ${totalCidrRuleSlotsSaved} Rule Slots`, 25, yPosition);
+    yPosition += 15;
+  }
+
+  // 1.8 Consolidation Opportunities Section
+  if (data.aiAnalysis?.consolidationOpportunities) {
+    addSectionHeader('Rule Consolidation Opportunities', [46, 204, 113]); // Emerald
+    
+    const consolidationData = data.aiAnalysis.consolidationOpportunities.length > 0
+      ? data.aiAnalysis.consolidationOpportunities.slice(0, limit).map((opp: any) => {
+          // Extract the first proposed rule to display as the recommendation
+          let proposedRuleStr = '-';
+          const recId = getNextRecId();
+          if (opp.proposedRules && opp.proposedRules.length > 0) {
+            const rule = opp.proposedRules[0];
+            proposedRuleStr = `${recId}Rule Name: ${rule.ruleName || 'Consolidated-Rule'}\n` +
+                              `Priority: ${rule.priority || 'Next Available'}\n` +
+                              `Source: ${rule.sourceAddress || '*'}\n` +
+                              `Dest: ${rule.destinationAddress || '*'}\n` +
+                              `Ports: ${rule.destinationPort || '*'}\n` +
+                              `Direction: ${rule.direction || 'Inbound'}`;
+          } else if (opp.recommendedCidr) {
+             proposedRuleStr = `${recId}Merge into CIDR: ${opp.recommendedCidr}`;
+          }
+
+          return [
+            opp.type || 'General',
+            opp.priority || 'Medium',
+            opp.description || 'No description',
+            (opp.rules && Array.isArray(opp.rules)) ? opp.rules.map((r: any) => `${typeof r === 'string' ? r : r.name}`).join(', ') : '0',
+            (opp.potentialSavings?.ruleReduction !== undefined) ? opp.potentialSavings.ruleReduction.toString() : '0',
+            proposedRuleStr
+          ];
+        })
+      : [['No consolidation opportunities identified', '-', '-', '-', '-', '-']];
+    
+    autoTable(doc, {
+      head: [['Type', 'Priority', 'Description', 'Affected Rules (to remove)', 'Savings', 'Proposed Rule (to include)']],
+      body: consolidationData,
+      startY: yPosition,
+      styles: { 
+        fontSize: 8, 
+        cellPadding: 3, 
+        lineColor: [189, 195, 199], 
+        lineWidth: 0.1,
+        overflow: 'linebreak'
+      },
+      headStyles: { fillColor: [46, 204, 113], textColor: [255, 255, 255], fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [242, 252, 245] },
+      columnStyles: {
+        0: { cellWidth: 30 },
+        1: { cellWidth: 15 },
+        2: { cellWidth: 40 },
+        3: { cellWidth: 60 }, // Affected Rules
+        4: { cellWidth: 15 },
+        5: { cellWidth: 70 }  // Proposed Rule
+      }
+    });
+    
+    yPosition = doc.lastAutoTable.finalY + 15;
+
+    // Add proposed rules tables if available
+    data.aiAnalysis.consolidationOpportunities.slice(0, limit).forEach((opp: any) => {
+      if (opp.proposedRules && opp.proposedRules.length > 0) {
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(46, 204, 113);
+        doc.text(`Recommended Rules for Consolidation: ${opp.type}`, 20, yPosition);
+        yPosition += 5;
+
+        const rulesData = opp.proposedRules.map((rule: any) => [
+          rule.nsgName || '-',
+          rule.ruleName || '-',
+          rule.direction || '-',
+          rule.priority || '-',
+          rule.access || '-',
+          rule.protocol || '-',
+          rule.sourcePort || '-',
+          rule.destinationPort || '-',
+          rule.sourceAddress || '-',
+          rule.destinationAddress || '-',
+          rule.sourceAsg || '-',
+          rule.destinationAsg || '-'
+        ]);
+
+        autoTable(doc, {
+          head: [['NSG Name', 'Rule Name', 'Direction', 'Priority', 'Access', 'Protocol', 'Source Port', 'Dest Port', 'Source Addr', 'Dest Addr', 'Source ASG', 'Dest ASG']],
+          body: rulesData,
+          startY: yPosition,
+          styles: { fontSize: 7, cellPadding: 2, lineColor: [189, 195, 199], lineWidth: 0.1, overflow: 'linebreak' },
+          headStyles: { fillColor: [46, 204, 113], textColor: [255, 255, 255], fontStyle: 'bold' },
+          alternateRowStyles: { fillColor: [242, 252, 245] },
+          columnStyles: {
+            0: { cellWidth: 15 },
+            1: { cellWidth: 20 },
+            2: { cellWidth: 12 },
+            3: { cellWidth: 10 },
+            4: { cellWidth: 10 },
+            5: { cellWidth: 12 },
+            6: { cellWidth: 12 },
+            7: { cellWidth: 12 },
+            8: { cellWidth: 25 },
+            9: { cellWidth: 25 },
+            10: { cellWidth: 10 },
+            11: { cellWidth: 10 }
+          }
+        });
+        yPosition = doc.lastAutoTable.finalY + 15;
+      }
+    });
   }
   
   // 1. Rule Optimization Recommendations section (FIRST)
@@ -436,7 +1151,7 @@ export const exportToPDF = (data: ExportData) => {
   }
   
   // 2. Service Tags Inventory section (SECOND)
-  if (data.aiAnalysis?.serviceTagAnalysis?.serviceTags) {
+  if (false && data.aiAnalysis?.serviceTagAnalysis?.serviceTags) {
     addSectionHeader('Service Tags Inventory', [52, 152, 219]);
     
     const serviceTagsData = data.aiAnalysis.serviceTagAnalysis.serviceTags.slice(0, 15).map((tag: any) => [
@@ -523,8 +1238,8 @@ export const exportToPDF = (data: ExportData) => {
     yPosition = doc.lastAutoTable.finalY + 15;
   }
   
-  // 4. IP Address Inventory Analysis section (FOURTH)
-  if (data.aiAnalysis?.ipInventory) {
+  // 4. IP Address Inventory Analysis section - DISABLED
+  if (false && data.aiAnalysis?.ipInventory) {
     addSectionHeader('IP Address Inventory Analysis', [46, 204, 113]);
     
     const ipStats = data.aiAnalysis.ipInventory;
@@ -558,59 +1273,14 @@ export const exportToPDF = (data: ExportData) => {
     
     yPosition = doc.lastAutoTable.finalY + 10;
     
-    // Detailed IP inventory with ports and protocols
-    if (ipStats.ipDetails && ipStats.ipDetails.length > 0) {
-      doc.setFontSize(11);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(46, 204, 113);
-      doc.text('Detailed IP Address Inventory:', margin, yPosition);
-      yPosition += 8;
-      
-      const ipDetailData = ipStats.ipDetails.slice(0, 15).map((detail: any) => [
-        detail.ipAddress || 'Unknown',
-        detail.type || 'Unknown',
-        detail.direction || 'Both',
-        Array.isArray(detail.ports) ? detail.ports.join(', ') : (detail.ports || 'Any'),
-        detail.protocol || 'Any',
-        detail.ruleName || 'Unknown',
-        (detail.usageCount !== undefined && detail.usageCount !== null) ? detail.usageCount.toString() : '1'
-      ]);
-      
-      autoTable(doc, {
-        head: [['IP Address', 'Type', 'Direction', 'Ports', 'Protocol', 'Rule Name', 'Usage']],
-        body: ipDetailData,
-        startY: yPosition,
-        styles: { 
-          fontSize: 8,
-          cellPadding: 2,
-          lineColor: [189, 195, 199],
-          lineWidth: 0.1
-        },
-        headStyles: { 
-          fillColor: [46, 204, 113],
-          textColor: [255, 255, 255],
-          fontStyle: 'bold'
-        },
-        alternateRowStyles: {
-          fillColor: [245, 253, 248]
-        },
-        columnStyles: {
-        0: { cellWidth: 40 }, // IP Address - wider
-        1: { cellWidth: 25 }, // Type
-        2: { cellWidth: 25 }, // Direction
-        3: { cellWidth: 35 }, // Ports - wider
-        4: { cellWidth: 25 }, // Protocol
-        5: { cellWidth: 60 }, // Rule Name - wider
-        6: { cellWidth: 35 }  // Usage - wider
-      }
-      });
-      
-      yPosition = doc.lastAutoTable.finalY + 15;
-    }
+    // Detailed IP inventory section removed
+  if (false && ipStats.ipDetails && ipStats.ipDetails.length > 0) {
+    // Code removed as per user request
+  }
   }
   
   // Duplicate IPs section (part of IP inventory)
-  if (data.aiAnalysis?.duplicateIps && data.aiAnalysis.duplicateIps.length > 0) {
+  if (false && data.aiAnalysis?.duplicateIps && data.aiAnalysis.duplicateIps.length > 0) {
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(230, 126, 34);
@@ -621,8 +1291,8 @@ export const exportToPDF = (data: ExportData) => {
       dup.ipAddress || 'N/A',
       (dup.usageCount !== undefined && dup.usageCount !== null) ? dup.usageCount.toString() : '0',
       dup.severity || 'Medium',
-      (dup.rules && Array.isArray(dup.rules)) ? dup.rules.map((r: any) => `${r.ruleName}:${r.priority || 'N/A'}`).join(', ').substring(0, 50) : 'No rules',
-      dup.recommendation ? dup.recommendation.substring(0, 40) + '...' : 'Consolidate rules'
+      (dup.rules && Array.isArray(dup.rules)) ? dup.rules.map((r: any) => `${r.ruleName}:${r.priority || 'N/A'}`).join(', ') : 'No rules',
+      dup.recommendation ? `${getNextRecId()}${dup.recommendation}` : 'Consolidate rules'
     ]);
     
     autoTable(doc, {
@@ -633,7 +1303,8 @@ export const exportToPDF = (data: ExportData) => {
         fontSize: 9,
         cellPadding: 3,
         lineColor: [189, 195, 199],
-        lineWidth: 0.1
+        lineWidth: 0.1,
+        overflow: 'linebreak'
       },
       headStyles: { 
         fillColor: [230, 126, 34],
@@ -644,30 +1315,32 @@ export const exportToPDF = (data: ExportData) => {
         fillColor: [253, 248, 243]
       },
       columnStyles: {
-        0: { cellWidth: 40 }, // IP Address - wider
-        1: { cellWidth: 25 }, // Usage Count
+        0: { cellWidth: 35 }, // IP Address
+        1: { cellWidth: 20 }, // Usage Count
         2: { cellWidth: 25 }, // Severity
-        3: { cellWidth: 90 }, // Affected Rules - much wider
-        4: { cellWidth: 70 }  // Remediation - wider
+        3: { cellWidth: 95 }, // Affected Rules - wider to show more
+        4: { cellWidth: 80 }  // Remediation - wider to show more
       }
     });
     
     yPosition = doc.lastAutoTable.finalY + 15;
   }
   
-  // 5. Redundant Rule Identification section (FIFTH)
-  if (data.aiAnalysis?.redundantRules && data.aiAnalysis.redundantRules.length > 0) {
-    addSectionHeader('Redundant Rule Identification', [231, 76, 60]);
+  // 1.7 Redundant Rules Section
+  if (data.aiAnalysis?.redundantRules) {
+    addSectionHeader('Redundant Rule identification', [231, 76, 60]);
     
-    const redundantData = data.aiAnalysis.redundantRules.map((redundant: any) => [
-      redundant.rule1?.name || 'Unknown',
-      redundant.rule2?.name || 'Unknown', 
-      redundant.similarityScore ? `${(redundant.similarityScore * 100).toFixed(0)}%` : 'N/A',
-      'Any', // Source IP - not available in current data structure
-      'Any', // Dest IP - not available in current data structure  
-      'Any', // Ports - not available in current data structure
-      redundant.recommendation || 'Remove or consolidate'
-    ]);
+    const redundantData = data.aiAnalysis.redundantRules.length > 0
+      ? data.aiAnalysis.redundantRules.map((redundant: any) => [
+          redundant.rule1?.name || 'Unknown',
+          redundant.rule2?.name || 'Unknown', 
+          redundant.similarityScore ? `${(redundant.similarityScore * 100).toFixed(0)}%` : 'N/A',
+          'Any', // Source IP - not available in current data structure
+          'Any', // Dest IP - not available in current data structure  
+          'Any', // Ports - not available in current data structure
+          redundant.recommendation || 'Remove or consolidate'
+        ])
+      : [['No redundant rules detected', '-', '-', '-', '-', '-', '-']];
     
     autoTable(doc, {
       head: [['Rule 1', 'Rule 2', 'Similarity', 'Recommendation']],
@@ -698,8 +1371,8 @@ export const exportToPDF = (data: ExportData) => {
     yPosition = doc.lastAutoTable.finalY + 15;
   }
   
-  // Consolidation Opportunities section (part of optimization)
-  if (data.aiAnalysis?.consolidationOpportunities && data.aiAnalysis.consolidationOpportunities.length > 0) {
+  // Consolidation Opportunities section (part of optimization) - DISABLED (Duplicate of 1.8)
+  if (false && data.aiAnalysis?.consolidationOpportunities && data.aiAnalysis.consolidationOpportunities.length > 0) {
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(52, 152, 219);
@@ -749,7 +1422,7 @@ export const exportToPDF = (data: ExportData) => {
 
   
   // 6. ASG (Application Security Group) Analysis section (SIXTH)
-  if (data.aiAnalysis?.ipAsgAnalysis) {
+  if (false && data.aiAnalysis?.ipAsgAnalysis) {
     addSectionHeader('Application Security Group (ASG) Analysis', [155, 89, 182]);
     
     const asgAnalysis = data.aiAnalysis.ipAsgAnalysis;
@@ -844,70 +1517,38 @@ export const exportToPDF = (data: ExportData) => {
     }
   }
   
-  // CIDR Overlaps section
-  if (data.aiAnalysis?.cidrOverlaps && data.aiAnalysis.cidrOverlaps.length > 0) {
-    addSectionHeader('Network Overlap Analysis', [241, 196, 15]);
-    
-    const overlapData = data.aiAnalysis.cidrOverlaps.map((overlap: any) => [
-      overlap.network1?.cidr || 'N/A',
-      overlap.network2?.cidr || 'N/A',
-      overlap.overlapType || 'Unknown',
-      overlap.severity || 'Medium',
-      overlap.recommendation ? (overlap.recommendation.length > 40 ? overlap.recommendation.substring(0, 40) + '...' : overlap.recommendation) : 'No recommendation'
-    ]);
-    
-    autoTable(doc, {
-      head: [['Network 1', 'Network 2', 'Overlap Type', 'Severity', 'Recommendation']],
-      body: overlapData,
-      startY: yPosition,
-      styles: { 
-        fontSize: 9,
-        cellPadding: 3,
-        lineColor: [189, 195, 199],
-        lineWidth: 0.1
-      },
-      headStyles: { 
-        fillColor: [241, 196, 15],
-        textColor: [0, 0, 0],
-        fontStyle: 'bold'
-      },
-      alternateRowStyles: {
-        fillColor: [254, 252, 235]
-      },
-      columnStyles: {
-        0: { cellWidth: 35 },
-        1: { cellWidth: 35 },
-        2: { cellWidth: 25 },
-        3: { cellWidth: 20 },
-        4: { cellWidth: 65 }
-      }
-    });
-    
-    yPosition = doc.lastAutoTable.finalY + 15;
+  // Network Overlap Analysis section removed as per user request
+  if (false && data.aiAnalysis?.cidrOverlaps && data.aiAnalysis.cidrOverlaps.length > 0) {
+    // Code removed
   }
   
   // Security Risks section (legacy support)
-  if (data.aiAnalysis?.securityRisks && data.aiAnalysis.securityRisks.length > 0) {
-    addSectionHeader('Additional Security Risks', [231, 76, 60]);
+  if (data.aiAnalysis?.securityRisks) {
+    addSectionHeader('Additional security risks and recommendation and proposed rules', [231, 76, 60]);
     
     const riskData: any[] = [];
-    data.aiAnalysis.securityRisks.forEach((riskItem: any) => {
-      if (riskItem.risks && Array.isArray(riskItem.risks)) {
-        riskItem.risks.forEach((risk: any) => {
-          riskData.push([
-            riskItem.ruleName || 'Unknown Rule',
-            riskItem.direction || 'N/A',
-            (riskItem.priority !== undefined && riskItem.priority !== null) ? riskItem.priority.toString() : 'N/A',
-            risk.type || 'Unknown',
-            risk.severity || 'Medium',
-            risk.description ? (risk.description.length > 50 ? risk.description.substring(0, 50) + '...' : risk.description) : 'No description'
-          ]);
-        });
-      }
-    });
+    if (data.aiAnalysis.securityRisks.length > 0) {
+      data.aiAnalysis.securityRisks.forEach((riskItem: any) => {
+        if (riskItem.risks && Array.isArray(riskItem.risks)) {
+          riskItem.risks.forEach((risk: any) => {
+            riskData.push([
+              riskItem.ruleName || 'Unknown Rule',
+              riskItem.direction || 'N/A',
+              (riskItem.priority !== undefined && riskItem.priority !== null) ? riskItem.priority.toString() : 'N/A',
+              risk.type || 'Unknown',
+              risk.severity || 'Medium',
+              risk.description ? (risk.description.length > 50 ? risk.description.substring(0, 50) + '...' : risk.description) : 'No description'
+            ]);
+          });
+        }
+      });
+    }
     
-    if (riskData.length > 0) {
-      autoTable(doc, {
+    if (riskData.length === 0) {
+      riskData.push(['No additional security risks identified', '-', '-', '-', '-', '-']);
+    }
+    
+    autoTable(doc, {
         head: [['Rule Name', 'Direction', 'Priority', 'Risk Type', 'Severity', 'Description']],
         body: riskData,
         startY: yPosition,
@@ -915,7 +1556,8 @@ export const exportToPDF = (data: ExportData) => {
           fontSize: 8,
           cellPadding: 2,
           lineColor: [189, 195, 199],
-          lineWidth: 0.1
+          lineWidth: 0.1,
+          overflow: 'linebreak'
         },
         headStyles: { 
           fillColor: [231, 76, 60],
@@ -936,7 +1578,6 @@ export const exportToPDF = (data: ExportData) => {
       });
       
       yPosition = doc.lastAutoTable.finalY + 15;
-    }
   }
   
   // Add footer with generation info

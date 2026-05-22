@@ -37,7 +37,7 @@ class AIService:
                         self.azure_openai_client = AsyncAzureOpenAI(
                             api_key=azure_key,
                             azure_endpoint=azure_endpoint,
-                            api_version="2024-02-15-preview"
+                            api_version="2023-12-01-preview"
                         )
                         logger.info("Azure OpenAI client initialized with API Key")
                     except Exception as e:

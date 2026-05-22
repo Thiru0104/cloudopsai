@@ -14,7 +14,7 @@ from app.core.security import get_password_hash, verify_password
 
 router = APIRouter()
 
-@router.get("/", response_model=List[User])
+@router.get("", response_model=List[User])
 async def read_users(
     db: AsyncSession = Depends(deps.get_db),
     skip: int = 0,
@@ -28,7 +28,7 @@ async def read_users(
     users = result.scalars().all()
     return users
 
-@router.post("/", response_model=User)
+@router.post("", response_model=User)
 async def create_user(
     *,
     db: AsyncSession = Depends(deps.get_db),

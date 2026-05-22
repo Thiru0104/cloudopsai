@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Golden Rule</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    :root, [data-theme="light"] {
+      --text-xs: clamp(0.75rem, 0.7rem + 0.25vw, 0.875rem);
+      --text-sm: clamp(0.875rem, 0.8rem + 0.35vw, 1rem);
+      --text-base: clamp(1rem, 0.95rem + 0.25vw, 1.125rem);
+      --text-lg: clamp(1.125rem, 1rem + 0.75vw, 1.5rem);
+      --text-xl: clamp(1.5rem, 1.2rem + 1.25vw, 2.25rem);
+      --space-1: 0.25rem; --space-2: 0.5rem; --space-3: 0.75rem; --space-4: 1rem; --space-5: 1.25rem; --space-6: 1.5rem; --space-8: 2rem; --space-10: 2.5rem; --space-12: 3rem; --space-16: 4rem;
+      --color-bg: #f7f6f2; --color-surface: #f9f8f5; --color-surface-2: #fbfbf9; --color-surface-offset: #f3f0ec; --color-divider: #dcd9d5; --color-border: #d4d1ca;
+      --color-text: #28251d; --color-text-muted: #7a7974; --color-text-inverse: #f9f8f4;
+      --color-primary: #01696f; --color-primary-hover: #0c4e54; --color-primary-highlight: #cedcd8;
+      --color-warning: #964219; --color-warning-highlight: #ddcfc6;
+      --color-error: #a12c7b; --color-error-highlight: #e0ced7;
+      --color-success: #437a22; --color-success-highlight: #d4dfcc;
+      --color-blue: #006494; --color-blue-highlight: #c6d8e4;
+      --radius-md: 0.5rem; --radius-lg: 0.75rem; --radius-xl: 1rem; --radius-full: 9999px;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.06); --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+      --transition: 180ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    [data-theme="dark"] {
+      --color-bg: #171614; --color-surface: #1c1b19; --color-surface-2: #201f1d; --color-surface-offset: #1d1c1a; --color-divider: #262523; --color-border: #393836;
+      --color-text: #cdccca; --color-text-muted: #797876; --color-text-inverse: #2b2a28;
+      --color-primary: #4f98a3; --color-primary-hover: #227f8b; --color-primary-highlight: #313b3b;
+      --color-warning: #bb653b; --color-warning-highlight: #564942;
+      --color-error: #d163a7; --color-error-highlight: #4c3d46;
+      --color-success: #6daa45; --color-success-highlight: #3a4435;
+      --color-blue: #5591c7; --color-blue-highlight: #3a4550;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { min-height: 100vh; font-family: 'Inter', sans-serif; font-size: var(--text-base); color: var(--color-text); background: linear-gradient(180deg, var(--color-bg), var(--color-surface-offset)); }
+    button, input, select { font: inherit; color: inherit; }
+    .app { display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; }
+    .sidebar { background: var(--color-surface); border-right: 1px solid var(--color-border); padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-6); }
+    .brand { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+    .brand-left { display: flex; align-items: center; gap: var(--space-3); }
+    .logo { width: 40px; height: 40px; border-radius: 12px; background: linear-gradient(135deg, var(--color-primary), var(--color-blue)); display: grid; place-items: center; color: white; box-shadow: var(--shadow-md); }
+    .brand h1 { font-size: var(--text-lg); font-weight: 800; }
+    .brand p { color: var(--color-text-muted); font-size: var(--text-xs); }
+    .theme-btn { width: 40px; height: 40px; border-radius: 12px; border: 1px solid var(--color-border); background: var(--color-surface-2); cursor: pointer; }
+    .nav-card, .info-card { background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 18px; padding: var(--space-4); box-shadow: var(--shadow-sm); }
+    .nav-card h2, .info-card h2 { font-size: var(--text-sm); font-weight: 700; margin-bottom: var(--space-3); }
+    .nav-list { list-style: none; display: grid; gap: var(--space-2); }
+    .nav-list li { color: var(--color-text-muted); font-size: var(--text-sm); line-height: 1.5; }
+    .main { padding: var(--space-8); display: grid; gap: var(--space-6); }
+    .hero { display: flex; justify-content: space-between; align-items: end; gap: var(--space-6); }
+    .hero h2 { font-size: var(--text-xl); line-height: 1.1; max-width: 18ch; }
+    .hero p { color: var(--color-text-muted); max-width: 75ch; margin-top: var(--space-3); }
+    .toolbar, .actions { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
+    .btn { border: 1px solid var(--color-border); background: var(--color-surface); border-radius: 14px; padding: 0.8rem 1rem; cursor: pointer; transition: var(--transition); font-weight: 600; }
+    .btn.primary { background: var(--color-primary); color: var(--color-text-inverse); border-color: var(--color-primary); }
+    .layout-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); }
+    .panel { background: rgba(255,255,255,0.4); backdrop-filter: blur(8px); border: 1px solid var(--color-border); border-radius: 24px; padding: var(--space-5); box-shadow: var(--shadow-md); }
+    [data-theme="dark"] .panel { background: rgba(28,27,25,0.72); }
+    .panel h3 { font-size: var(--text-lg); margin-bottom: var(--space-2); }
+    .panel p.sub { color: var(--color-text-muted); font-size: var(--text-sm); margin-bottom: var(--space-4); }
+    .dropzone { border: 2px dashed var(--color-border); border-radius: 20px; padding: var(--space-8); min-height: 230px; display: grid; place-items: center; text-align: center; background: var(--color-surface-2); position: relative; }
+    .dropzone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .dropzone strong { display: block; font-size: var(--text-lg); margin-bottom: var(--space-2); }
+    .dropzone span { color: var(--color-text-muted); font-size: var(--text-sm); display: block; }
+    .offline-note { margin-top: var(--space-3); display: inline-block; padding: 0.45rem 0.7rem; border-radius: var(--radius-full); background: var(--color-blue-highlight); color: var(--color-blue); font-size: var(--text-xs); font-weight: 700; }
+    .file-meta { margin-top: var(--space-4); display: none; gap: var(--space-2); flex-wrap: wrap; justify-content: center; }
+    .chip { display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.45rem 0.75rem; border-radius: var(--radius-full); font-size: var(--text-xs); font-weight: 700; }
+    .chip.success { background: var(--color-success-highlight); color: var(--color-success); }
+    .chip.blue { background: var(--color-blue-highlight); color: var(--color-blue); }
+    .controls, .summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); }
+    .control, .metric { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 18px; padding: var(--space-4); }
+    .control label { display: block; font-size: var(--text-xs); font-weight: 700; color: var(--color-text-muted); margin-bottom: var(--space-2); text-transform: uppercase; letter-spacing: 0.06em; }
+    .control input, .control select, .search { width: 100%; border: 1px solid var(--color-border); background: var(--color-surface-2); border-radius: 12px; padding: 0.8rem 0.9rem; }
+    .metric small { color: var(--color-text-muted); display: block; margin-bottom: var(--space-2); }
+    .metric strong { font-size: var(--text-xl); line-height: 1; }
+    .metric .delta { margin-top: var(--space-2); font-size: var(--text-xs); font-weight: 700; }
+    .delta.added { color: var(--color-success); } .delta.removed { color: var(--color-error); } .delta.modified { color: var(--color-warning); }
+    .workspace { display: grid; grid-template-columns: 300px 1fr; gap: var(--space-6); align-items: start; }
+    .filters { display: grid; gap: var(--space-4); }
+    .legend { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+    .tag { padding: 0.45rem 0.7rem; border-radius: var(--radius-full); font-size: var(--text-xs); font-weight: 700; }
+    .tag.added { background: var(--color-success-highlight); color: var(--color-success); }
+    .tag.removed { background: var(--color-error-highlight); color: var(--color-error); }
+    .tag.modified { background: var(--color-warning-highlight); color: var(--color-warning); }
+    .tag.same { background: var(--color-blue-highlight); color: var(--color-blue); }
+    .table-wrap { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 24px; overflow: hidden; box-shadow: var(--shadow-md); }
+    .table-toolbar { padding: var(--space-4); border-bottom: 1px solid var(--color-border); display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; justify-content: space-between; }
+    .status-line { display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; color: var(--color-text-muted); font-size: var(--text-sm); }
+    .table-scroll { max-height: 70vh; overflow: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+    th, td { padding: 0.9rem 0.85rem; border-bottom: 1px solid var(--color-divider); vertical-align: top; text-align: left; }
+    th { position: sticky; top: 0; background: var(--color-surface-2); z-index: 2; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); }
+    tr.delta-added td { background: rgba(67,122,34,0.10); }
+    tr.delta-removed td { background: rgba(161,44,123,0.10); }
+    tr.delta-modified td { background: rgba(150,66,25,0.12); }
+    .cell-diff { display: inline-block; padding: 0.15rem 0.4rem; border-radius: 8px; margin-right: 0.35rem; }
+    .cell-diff.old { background: rgba(161,44,123,0.12); color: var(--color-error); text-decoration: line-through; }
+    .cell-diff.new { background: rgba(67,122,34,0.12); color: var(--color-success); }
+    .mini-btn { padding: 0.45rem 0.7rem; border-radius: 10px; border: 1px solid var(--color-border); background: var(--color-surface-2); cursor: pointer; font-size: var(--text-xs); font-weight: 700; }
+    .mini-btn.save { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-text-inverse); }
+    .empty { padding: var(--space-12); text-align: center; color: var(--color-text-muted); }
+    .footer-note { color: var(--color-text-muted); font-size: var(--text-sm); }
+    @media (max-width: 1180px) { .app, .layout-grid, .workspace, .controls, .summary { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-left">
+          <div class="logo">GR</div>
+          <div>
+            <h1>Golden Rule</h1>
+            <p>NSG baseline delta engine</p>
+          </div>
+        </div>
+        <button class="theme-btn" id="themeToggle" aria-label="Toggle theme">◐</button>
+      </div>
+      <div class="nav-card">
+        <h2>Validation Scope</h2>
+        <ul class="nav-list">
+          <li>Compare Golden Rule baseline against target NSG rules.</li>
+          <li>Default scope focuses priority band 3500–4096.</li>
+          <li>Editable remediation range is restricted to 3500–4095.</li>
+          <li>Supports multi-CIDR and multi-port normalization.</li>
+          <li>Designed for CloudOps and security admin validation workflows.</li>
+        </ul>
+      </div>
+      <div class="info-card">
+        <h2>Offline upload mode</h2>
+        <ul class="nav-list">
+          <li>Users can browse and upload local Excel, CSV, and JSON files.</li>
+          <li>No backend dependency for file upload or comparison.</li>
+          <li>Parsing and diff logic run inside the browser session.</li>
+          <li>Suitable for restricted or disconnected review environments.</li>
+        </ul>
+      </div>
+    </aside>
+    <main class="main">
+      <section class="hero">
+        <div>
+          <h2>Upload Golden Rule baseline and target NSG files for offline delta validation.</h2>
+          <p>This version explicitly supports local offline file selection for Excel, CSV, and JSON. It compares only the selected priority band, highlights differences only by default, and lets CloudOps update remediation priority values within the approved 3500–4095 range.</p>
+        </div>
+        <div class="toolbar">
+          <button class="btn primary" id="compareBtn">Compare Files</button>
+          <button class="btn" id="exportCsvBtn">Export CSV</button>
+          <button class="btn" id="exportJsonBtn">Export JSON</button>
+          <button class="btn" id="exportRemediatedBtn">Export Remediated Target</button>
+        </div>
+      </section>
+
+      <section class="layout-grid">
+        <div class="panel">
+          <h3>Source File</h3>
+          <p class="sub">Upload the Golden Rule baseline from your local machine. Supported formats: Excel, CSV, JSON.</p>
+          <div class="dropzone" id="sourceDropzone">
+            <input type="file" id="sourceFile" accept=".xlsx,.xls,.csv,.json" />
+            <div>
+              <strong>Select source baseline file</strong>
+              <span>Drag and drop or browse to upload from your offline workstation.</span>
+              <span class="offline-note">Offline local upload enabled</span>
+              <div class="file-meta" id="sourceMeta"></div>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Target File</h3>
+          <p class="sub">Upload the configured NSG rules from your local machine for delta comparison.</p>
+          <div class="dropzone" id="targetDropzone">
+            <input type="file" id="targetFile" accept=".xlsx,.xls,.csv,.json" />
+            <div>
+              <strong>Select target NSG file</strong>
+              <span>Target review focuses on CloudOps foundation rule priorities 3500–4096.</span>
+              <span class="offline-note">Offline local upload enabled</span>
+              <div class="file-meta" id="targetMeta"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="controls">
+        <div class="control"><label for="priorityStart">Priority start</label><input type="number" id="priorityStart" min="100" max="4095" value="3500" /></div>
+        <div class="control"><label for="priorityEnd">Priority end</label><input type="number" id="priorityEnd" min="100" max="4096" value="4096" /></div>
+        <div class="control"><label for="deltaFilter">Delta filter</label><select id="deltaFilter"><option value="all">All rows in scope</option><option value="different" selected>Differences only</option><option value="added">Added only</option><option value="removed">Removed only</option><option value="modified">Modified only</option><option value="same">Matched only</option><option value="mismatch-priority">Priority mismatch only</option><option value="mismatch-cidr">CIDR mismatch only</option><option value="mismatch-port">Port mismatch only</option></select></div>
+        <div class="control"><label for="editablePriority">Update edited priority to</label><input type="number" id="editablePriority" min="3500" max="4095" value="3500" /></div>
+      </section>
+
+      <section class="summary">
+        <div class="metric"><small>Rules in scope</small><strong id="metricScope">0</strong><div class="delta">Waiting for files</div></div>
+        <div class="metric"><small>Added</small><strong id="metricAdded">0</strong><div class="delta added">Target only</div></div>
+        <div class="metric"><small>Removed</small><strong id="metricRemoved">0</strong><div class="delta removed">Source only</div></div>
+        <div class="metric"><small>Modified</small><strong id="metricModified">0</strong><div class="delta modified">Changed fields</div></div>
+      </section>
+
+      <section class="workspace">
+        <div class="filters">
+          <div class="panel">
+            <h3>Legend</h3>
+            <p class="sub">Use color to identify the delta type quickly.</p>
+            <div class="legend">
+              <span class="tag added">Added</span>
+              <span class="tag removed">Removed</span>
+              <span class="tag modified">Modified</span>
+              <span class="tag same">Matched</span>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>CloudOps Notes</h3>
+            <p class="sub">Golden Rule baseline and target files are both uploaded locally. No server upload is required, which makes the tool suitable for restricted environments.</p>
+            <p class="footer-note">Priority comparison defaults to 3500–4096, while remediation edits are limited to 3500–4095 for controlled NSG governance.</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <div class="table-toolbar">
+            <input class="search" id="searchBox" placeholder="Search rule name, IP, CIDR, ports, protocol, or status" />
+            <div class="status-line">
+              <span id="statusText">Ready to compare offline files.</span>
+              <span id="visibleCount">0 rows visible</span>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th>Rule Name</th>
+                  <th>Priority</th>
+                  <th>Direction</th>
+                  <th>Protocol</th>
+                  <th>Source</th>
+                  <th>Destination</th>
+                  <th>Ports</th>
+                  <th>Delta Detail</th>
+                  <th>Edit</th>
+                </tr>
+              </thead>
+              <tbody id="resultsBody">
+                <tr><td colspan="10" class="empty">Upload both local source and target files to see highlighted deltas.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const state = { sourceRows: [], targetRows: [], comparedRows: [], visibleRows: [] };
+    const FIELD_ALIASES = {
+      ruleName: ['rule name','rulename','name'],
+      priority: ['priority'],
+      direction: ['direction'],
+      protocol: ['protocol'],
+      source: ['source','source ip','source ips','sourceaddressprefix','source address prefix','sourceaddressprefixes','source address prefixes'],
+      destination: ['destination','destination ip','destination ips','destinationaddressprefix','destination address prefix','destinationaddressprefixes','destination address prefixes'],
+      ports: ['ports','destinationportrange','destination port range','destinationportranges','destination port ranges','port range','port']
+    };
+    const normalizeHeader = h => String(h || '').trim().toLowerCase().replace(/[_\-]+/g,' ').replace(/\s+/g,' ');
+    function findField(row, aliases){ for (const [k,v] of Object.entries(row||{})) if (aliases.includes(normalizeHeader(k))) return v; return ''; }
+    function splitValues(v){ if(Array.isArray(v)) return v.flatMap(splitValues); return String(v??'').replace(/[\n\r]+/g,',').split(/[;,]/).map(x=>x.trim()).filter(Boolean).sort((a,b)=>a.localeCompare(b)); }
+    const uniqueJoin = arr => [...new Set(arr)].join(', ');
+    const cleanText = v => String(v??'').trim();
+    const cleanPriority = v => { const n = Number(String(v??'').trim()); return Number.isFinite(n) ? n : null; };
+    function normalizeRecord(row, i, fileType){
+      const ruleName = cleanText(findField(row, FIELD_ALIASES.ruleName)) || `${fileType}-row-${i+1}`;
+      const priority = cleanPriority(findField(row, FIELD_ALIASES.priority));
+      return {
+        original: row,
+        ruleName,
+        priority,
+        direction: cleanText(findField(row, FIELD_ALIASES.direction)),
+        protocol: cleanText(findField(row, FIELD_ALIASES.protocol)),
+        source: uniqueJoin(splitValues(findField(row, FIELD_ALIASES.source))),
+        destination: uniqueJoin(splitValues(findField(row, FIELD_ALIASES.destination))),
+        ports: uniqueJoin(splitValues(findField(row, FIELD_ALIASES.ports))),
+        key: ruleName.toLowerCase()
+      };
+    }
+    async function parseFile(file){
+      const ext = file.name.split('.').pop().toLowerCase();
+      if(ext === 'csv'){ const text = await file.text(); const wb = XLSX.read(text,{type:'string'}); return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''}); }
+      if(ext === 'json'){ return JSON.parse(await file.text()); }
+      const data = await file.arrayBuffer(); const wb = XLSX.read(data,{type:'array'}); return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
+    }
+    function updateMeta(el,file,count){ el.style.display='flex'; el.innerHTML=`<span class="chip success">${file.name}</span><span class="chip blue">${count} rows</span>`; }
+    function setStatus(msg){ document.getElementById('statusText').textContent = msg; }
+    function register(inputId, zoneId, metaId, type){
+      const input = document.getElementById(inputId), zone = document.getElementById(zoneId), meta = document.getElementById(metaId);
+      input.addEventListener('change', async e => {
+        const file = e.target.files[0]; if(!file) return;
+        const rows = await parseFile(file); const normalized = rows.map((r,i)=>normalizeRecord(r,i,type));
+        if(type==='source') state.sourceRows = normalized; else state.targetRows = normalized;
+        updateMeta(meta,file,normalized.length); setStatus(`${state.sourceRows.length||0} source rows loaded, ${state.targetRows.length||0} target rows loaded.`);
+      });
+      ['dragenter','dragover'].forEach(evt => zone.addEventListener(evt, e => { e.preventDefault(); zone.style.borderColor='var(--color-primary)'; }));
+      ['dragleave','drop'].forEach(evt => zone.addEventListener(evt, e => { e.preventDefault(); zone.style.borderColor='var(--color-border)'; }));
+      zone.addEventListener('drop', e => { const file = e.dataTransfer.files[0]; if(!file) return; const dt = new DataTransfer(); dt.items.add(file); input.files = dt.files; input.dispatchEvent(new Event('change')); });
+    }
+    const inScope = (p,s,e) => p !== null && p >= s && p <= e;
+    function diffFields(a,b){ const fields=['priority','direction','protocol','source','destination','ports']; return fields.filter(f => String(a?.[f]??'') !== String(b?.[f]??'')).map(f => ({field:f,before:a?.[f]??'',after:b?.[f]??''})); }
+    function compareData(){
+      const start = Number(document.getElementById('priorityStart').value||3500), end = Number(document.getElementById('priorityEnd').value||4096);
+      const sourceScoped = state.sourceRows.filter(r => inScope(r.priority,start,end));
+      const targetScoped = state.targetRows.filter(r => inScope(r.priority,start,end));
+      const sm = new Map(sourceScoped.map(r => [r.key,r])), tm = new Map(targetScoped.map(r => [r.key,r]));
+      const keys = new Set([...sm.keys(),...tm.keys()]); const results = [];
+      keys.forEach(key => {
+        const s = sm.get(key), t = tm.get(key);
+        if(s && t){ const changes = diffFields(s,t); results.push({status: changes.length ? 'modified' : 'same', ruleName: t.ruleName || s.ruleName, priority: t.priority ?? s.priority, editablePriority: t.priority ?? s.priority, direction: t.direction || s.direction, protocol: t.protocol || s.protocol, source: t.source || s.source, destination: t.destination || s.destination, ports: t.ports || s.ports, changes}); }
+        else if(t){ results.push({status:'added', ruleName:t.ruleName, priority:t.priority, editablePriority:t.priority, direction:t.direction, protocol:t.protocol, source:t.source, destination:t.destination, ports:t.ports, changes:[{field:'rule',before:'',after:'Present only in target'}]}); }
+        else if(s){ results.push({status:'removed', ruleName:s.ruleName, priority:s.priority, editablePriority:s.priority, direction:s.direction, protocol:s.protocol, source:s.source, destination:s.destination, ports:s.ports, changes:[{field:'rule',before:'Present only in source',after:''}]}); }
+      });
+      results.sort((a,b)=>(a.priority??99999)-(b.priority??99999)||a.ruleName.localeCompare(b.ruleName));
+      state.comparedRows = results;
+      document.getElementById('metricScope').textContent = results.length;
+      document.getElementById('metricAdded').textContent = results.filter(r=>r.status==='added').length;
+      document.getElementById('metricRemoved').textContent = results.filter(r=>r.status==='removed').length;
+      document.getElementById('metricModified').textContent = results.filter(r=>r.status==='modified').length;
+      setStatus(`Compared offline files in scope ${start}-${end}.`);
+      applyFilters();
+    }
+    const esc = t => String(t).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    function renderDelta(row){ if(!row.changes.length) return '<span class="tag same">No change</span>'; return row.changes.map(c=>`<div style="display:grid;gap:0.25rem;margin-bottom:0.45rem;"><strong style="font-size:var(--text-xs);text-transform:uppercase;color:var(--color-text-muted);">${c.field}</strong><div><span class="cell-diff old">${esc(c.before || '—')}</span><span class="cell-diff new">${esc(c.after || '—')}</span></div></div>`).join(''); }
+    function renderTable(rows){
+      const tbody = document.getElementById('resultsBody');
+      if(!rows.length){ tbody.innerHTML = '<tr><td colspan="10" class="empty">No rows match the current filter.</td></tr>'; return; }
+      tbody.innerHTML = rows.map((row,i)=>`<tr class="delta-${row.status}"><td><span class="tag ${row.status}">${row.status}</span></td><td><strong>${esc(row.ruleName)}</strong></td><td><input data-index="${i}" class="priority-editor" type="number" min="3500" max="4095" value="${row.editablePriority ?? ''}" style="width:96px;border:1px solid var(--color-border);border-radius:10px;padding:0.55rem;background:var(--color-surface-2);" /></td><td>${esc(row.direction||'—')}</td><td>${esc(row.protocol||'—')}</td><td>${esc(row.source||'—')}</td><td>${esc(row.destination||'—')}</td><td>${esc(row.ports||'—')}</td><td>${renderDelta(row)}</td><td><div class="actions"><button class="mini-btn apply-one" data-index="${i}">Set priority</button><button class="mini-btn save apply-row" data-index="${i}">Save row</button></div></td></tr>`).join('');
+      tbody.querySelectorAll('.apply-one').forEach(btn => btn.addEventListener('click', () => { const idx = Number(btn.dataset.index); const editor = tbody.querySelector(`.priority-editor[data-index="${idx}"]`); editor.value = document.getElementById('editablePriority').value; }));
+      tbody.querySelectorAll('.apply-row').forEach(btn => btn.addEventListener('click', () => { const idx = Number(btn.dataset.index); const editor = tbody.querySelector(`.priority-editor[data-index="${idx}"]`); const value = Number(editor.value); if(value < 3500 || value > 4095){ alert('Priority must be between 3500 and 4095.'); return; } state.visibleRows[idx].changes = state.visibleRows[idx].changes.filter(c => c.field !== 'editedPriority'); state.visibleRows[idx].changes.unshift({field:'editedPriority',before:state.visibleRows[idx].priority,after:value}); state.visibleRows[idx].editablePriority = value; state.visibleRows[idx].status = 'modified'; setStatus(`Saved priority ${value} for ${state.visibleRows[idx].ruleName}.`); renderTable(state.visibleRows); }));
+    }
+    function applyFilters(){
+      const filter = document.getElementById('deltaFilter').value, search = document.getElementById('searchBox').value.trim().toLowerCase();
+      const rows = state.comparedRows.filter(r => {
+        let byStatus = false;
+        if (filter === 'all') byStatus = true;
+        else if (filter === 'different') byStatus = r.status !== 'same';
+        else if (filter === 'mismatch-priority') byStatus = r.changes.some(c => c.field === 'priority' || c.field === 'editedPriority');
+        else if (filter === 'mismatch-cidr') byStatus = r.changes.some(c => c.field === 'source' || c.field === 'destination');
+        else if (filter === 'mismatch-port') byStatus = r.changes.some(c => c.field === 'ports');
+        else byStatus = r.status === filter;
+        
+        const hay = [r.ruleName,r.priority,r.direction,r.protocol,r.source,r.destination,r.ports,r.status].join(' ').toLowerCase();
+        return byStatus && (!search || hay.includes(search));
+      });
+      state.visibleRows = rows; renderTable(rows); document.getElementById('visibleCount').textContent = `${rows.length} rows visible`;
+    }
+    function downloadBlob(blob, filename){ const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url); }
+    function exportRows(type){
+      if(!state.visibleRows.length){ alert('No visible rows to export.'); return; }
+      const payload = state.visibleRows.map(r => ({ status:r.status, ruleName:r.ruleName, priorityOriginal:r.priority, priorityEdited:r.editablePriority, direction:r.direction, protocol:r.protocol, source:r.source, destination:r.destination, ports:r.ports, delta:r.changes.map(c => `${c.field}: ${c.before ?? '—'} => ${c.after ?? '—'}`).join(' | ') }));
+      if(type === 'json'){ downloadBlob(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}), `golden-rule-delta-${Date.now()}.json`); }
+      else { const csv = XLSX.utils.sheet_to_csv(XLSX.utils.json_to_sheet(payload)); downloadBlob(new Blob([csv],{type:'text/csv;charset=utf-8;'}), `golden-rule-delta-${Date.now()}.csv`); }
+    }
+    document.getElementById('compareBtn').addEventListener('click', () => { if(!state.sourceRows.length || !state.targetRows.length){ alert('Upload both local files first.'); return; } compareData(); });
+    document.getElementById('deltaFilter').addEventListener('change', applyFilters);
+    document.getElementById('searchBox').addEventListener('input', applyFilters);
+    document.getElementById('exportCsvBtn').addEventListener('click', () => exportRows('csv'));
+    document.getElementById('exportJsonBtn').addEventListener('click', () => exportRows('json'));
+    document.getElementById('exportRemediatedBtn').addEventListener('click', () => {
+      if(!state.visibleRows.length){ alert('No visible rows to export.'); return; }
+      const payload = state.visibleRows.map(r => ({ RuleName: r.ruleName, Priority: r.editablePriority ?? r.priority, Direction: r.direction, Protocol: r.protocol, SourceAddressPrefix: r.source, DestinationAddressPrefix: r.destination, DestinationPortRange: r.ports }));
+      const csv = XLSX.utils.sheet_to_csv(XLSX.utils.json_to_sheet(payload)); downloadBlob(new Blob([csv],{type:'text/csv;charset=utf-8;'}), `remediated-target-${Date.now()}.csv`);
+    });
+    document.getElementById('themeToggle').addEventListener('click', () => { const root = document.documentElement; root.setAttribute('data-theme', root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'); });
+    register('sourceFile','sourceDropzone','sourceMeta','source');
+    register('targetFile','targetDropzone','targetMeta','target');
+  </script>
+</body>
+</html>

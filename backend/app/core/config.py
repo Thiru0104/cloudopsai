@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     AZURE_STORAGE_ACCOUNT_NAME: Optional[str] = None
     
     # AI Models
+    AI_ANALYSIS_IGNORE_PRIORITY_RANGE: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
     AZURE_OPENAI_ENDPOINT: Optional[str] = None

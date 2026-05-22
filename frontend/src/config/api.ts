@@ -15,7 +15,7 @@ export const apiConfig = {
     nsgs: '/api/v1/nsgs',
     routeTables: '/api/v1/route-tables',
     agents: '/api/v1/agents',
-    users: '/api/v1/users/'
+    users: '/api/v1/users'
   }
 }
 

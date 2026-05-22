@@ -1,9 +1,38 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, File, UploadFile
 from typing import Dict, Any, List
+import pandas as pd
+import io
 from app.services.nsg_validation import NSGValidator
 
 router = APIRouter()
 validator = NSGValidator()
+
+@router.post("/nsg-validation/offline")
+async def validate_offline_nsg(file: UploadFile = File(...)) -> Dict[str, Any]:
+    """
+    Validate NSG rules from an uploaded Excel/CSV file.
+    """
+    if not file.filename.lower().endswith(('.xlsx', '.xls', '.csv')):
+        raise HTTPException(status_code=400, detail="Invalid file format. Please upload .xlsx, .xls, or .csv")
+    try:
+        contents = await file.read()
+        if file.filename.lower().endswith('.csv'):
+            df = pd.read_csv(io.BytesIO(contents))
+        else:
+            df = pd.read_excel(io.BytesIO(contents))
+        
+        # Convert DataFrame to list of dicts, handling NaN values
+        df = df.where(pd.notnull(df), None)
+        rules_data = df.to_dict(orient='records')
+        
+        if not rules_data:
+            raise HTTPException(status_code=400, detail="No data found in file")
+            
+        result = validator.analyze_offline_nsg_rules(rules_data, nsg_name=file.filename)
+        return result
+    except Exception as e:
+        print(f"Error processing file: {e}")
+        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
 
 @router.get("/nsg-validation/{nsg_name}")
 def validate_nsg(

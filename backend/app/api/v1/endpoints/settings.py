@@ -48,23 +48,23 @@ def save_json(path: str, data: Dict[str, Any]) -> None:
         raise HTTPException(status_code=500, detail="Failed to persist settings")
 
 
-@router.get("/settings/notifications")
+@router.get("/notifications")
 def get_notifications():
     return load_json(NOTIFICATION_PATH, NotificationSettings().dict())
 
 
-@router.post("/settings/notifications")
+@router.post("/notifications")
 def save_notifications(settings: NotificationSettings):
     save_json(NOTIFICATION_PATH, settings.dict())
     return {"success": True, "message": "Notification settings saved"}
 
 
-@router.get("/settings/security")
+@router.get("/security")
 def get_security():
     return load_json(SECURITY_PATH, SecuritySettings().dict())
 
 
-@router.post("/settings/security")
+@router.post("/security")
 def save_security(settings: SecuritySettings):
     save_json(SECURITY_PATH, settings.dict())
     return {"success": True, "message": "Security settings saved"}

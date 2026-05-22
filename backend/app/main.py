@@ -152,7 +152,12 @@ async def serve_spa(full_path: str):
         
     # Check if we have the static build
     if os.path.exists(static_dir):
-        # Serve index.html
+        # 1. Try to serve the actual file if it exists (e.g. /favicon.ico, /logo.png)
+        file_path = os.path.join(static_dir, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+            
+        # 2. Otherwise serve index.html (SPA support for /nsgs, /storage, etc.)
         index_path = os.path.join(static_dir, "index.html")
         if os.path.exists(index_path):
             return FileResponse(index_path)

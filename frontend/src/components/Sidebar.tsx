@@ -30,6 +30,27 @@ const navigation = [
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const location = useLocation();
+  const [showStorage, setShowStorage] = React.useState(localStorage.getItem('showStorage') !== 'false');
+  const [showNSG, setShowNSG] = React.useState(localStorage.getItem('showNSG') !== 'false');
+  const [showAIAgents, setShowAIAgents] = React.useState(localStorage.getItem('showAIAgents') === 'true');
+
+  React.useEffect(() => {
+    const handleStorageChange = () => {
+      setShowStorage(localStorage.getItem('showStorage') !== 'false');
+      setShowNSG(localStorage.getItem('showNSG') !== 'false');
+      setShowAIAgents(localStorage.getItem('showAIAgents') === 'true');
+    };
+    
+    window.addEventListener('displaySettingsChanged', handleStorageChange);
+    return () => window.removeEventListener('displaySettingsChanged', handleStorageChange);
+  }, []);
+
+  const filteredNavigation = navigation.filter(item => {
+    if (item.name === 'Storage' && !showStorage) return false;
+    if (item.name === 'NSGs' && !showNSG) return false;
+    if (item.name === 'AI Agents' && !showAIAgents) return false;
+    return true;
+  });
 
   return (
     <>
@@ -54,7 +75,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
               <li>
                 <div className="text-xs font-semibold leading-6 text-slate-400 uppercase tracking-wider mb-4">Navigation</div>
                 <ul role="list" className="-mx-2 space-y-2">
-                  {navigation.map((item) => {
+                  {filteredNavigation.map((item) => {
                     const isActive = location.pathname === item.href;
                     return (
                       <li key={item.name}>
@@ -129,7 +150,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
               <li>
                 <div className="text-xs font-semibold leading-6 text-slate-400 uppercase tracking-wider mb-4">Navigation</div>
                 <ul role="list" className="-mx-2 space-y-2">
-                  {navigation.map((item) => {
+                  {filteredNavigation.map((item) => {
                     const isActive = location.pathname === item.href;
                     return (
                       <li key={item.name}>

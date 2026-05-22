@@ -1,0 +1,45 @@
+{
+    "Name": "NSG Tool Operator",
+    "IsCustom": true,
+    "Description": "Allows NSG analysis and rule remediation, Storage Blob Data access (Contributor), and Key Vault management, but prevents deletion of Resources.",
+    "Actions": [
+        "Microsoft.Resources/subscriptions/read",
+        "Microsoft.Resources/subscriptions/resourceGroups/read",
+        "Microsoft.Network/networkSecurityGroups/read",
+        "Microsoft.Network/networkSecurityGroups/write",
+        "Microsoft.Network/networkSecurityGroups/join/action",
+        "Microsoft.Network/networkSecurityGroups/securityRules/read",
+        "Microsoft.Network/networkSecurityGroups/securityRules/write",
+        "Microsoft.Network/virtualNetworks/read",
+        "Microsoft.Network/networkInterfaces/read",
+        "Microsoft.Storage/storageAccounts/read",
+        "Microsoft.Storage/storageAccounts/listKeys/action",
+        "Microsoft.Storage/storageAccounts/blobServices/read",
+        "Microsoft.Storage/storageAccounts/blobServices/containers/read",
+        "Microsoft.Storage/storageAccounts/blobServices/containers/write",
+        "Microsoft.KeyVault/vaults/read",
+        "Microsoft.KeyVault/vaults/write",
+        "Microsoft.KeyVault/vaults/accessPolicies/write",
+        "Microsoft.KeyVault/secrets/read",
+        "Microsoft.KeyVault/secrets/write",
+        "Microsoft.KeyVault/certificates/read",
+        "Microsoft.KeyVault/certificates/write",
+        "Microsoft.KeyVault/keys/read",
+        "Microsoft.KeyVault/keys/write"
+    ],
+    "NotActions": [
+        "Microsoft.Network/networkSecurityGroups/delete",
+        "Microsoft.Network/networkSecurityGroups/securityRules/delete",
+        "Microsoft.Storage/storageAccounts/delete",
+        "Microsoft.Storage/storageAccounts/blobServices/containers/delete",
+        "Microsoft.KeyVault/vaults/delete"
+    ],
+    "DataActions": [
+        "Microsoft.Storage/storageBlobData/read",
+        "Microsoft.Storage/storageBlobData/write",
+        "Microsoft.Storage/storageBlobData/delete"
+    ],
+    "AssignableScopes": [
+        "/subscriptions/YOUR_SUBSCRIPTION_ID"
+    ]
+}
