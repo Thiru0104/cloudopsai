@@ -290,7 +290,7 @@ export const exportToPDF = (data: ExportData, limit: number = 15) => {
     doc.text(`${inStats.sourceIpsAsgs}`, 25, yPosition + 25);
     
     doc.setFontSize(9); doc.setFont('helvetica', 'normal');
-    doc.text('Destination IPs + ASGs', 25 + colWidth, yPosition + 18);
+    doc.text('Dest IPs + ASGs', 25 + colWidth, yPosition + 18);
     doc.setFontSize(14); doc.setFont('helvetica', 'bold');
     doc.text(`${inStats.destIpsAsgs}`, 25 + colWidth, yPosition + 25);
     
@@ -300,7 +300,7 @@ export const exportToPDF = (data: ExportData, limit: number = 15) => {
     doc.text(`${inStats.sourceAsgs}`, 25 + colWidth * 2, yPosition + 25);
     
     doc.setFontSize(9); doc.setFont('helvetica', 'normal');
-    doc.text('Destination ASGs', 25 + colWidth * 3, yPosition + 18);
+    doc.text('Dest ASGs', 25 + colWidth * 3, yPosition + 18);
     doc.setFontSize(14); doc.setFont('helvetica', 'bold');
     doc.text(`${inStats.destAsgs}`, 25 + colWidth * 3, yPosition + 25);
 
@@ -328,7 +328,7 @@ export const exportToPDF = (data: ExportData, limit: number = 15) => {
     doc.text(`${outStats.sourceIpsAsgs}`, 25, yPosition + 25);
     
     doc.setFontSize(9); doc.setFont('helvetica', 'normal');
-    doc.text('Destination IPs + ASGs', 25 + colWidth, yPosition + 18);
+    doc.text('Dest IPs + ASGs', 25 + colWidth, yPosition + 18);
     doc.setFontSize(14); doc.setFont('helvetica', 'bold');
     doc.text(`${outStats.destIpsAsgs}`, 25 + colWidth, yPosition + 25);
     
@@ -338,7 +338,7 @@ export const exportToPDF = (data: ExportData, limit: number = 15) => {
     doc.text(`${outStats.sourceAsgs}`, 25 + colWidth * 2, yPosition + 25);
     
     doc.setFontSize(9); doc.setFont('helvetica', 'normal');
-    doc.text('Destination ASGs', 25 + colWidth * 3, yPosition + 18);
+    doc.text('Dest ASGs', 25 + colWidth * 3, yPosition + 18);
     doc.setFontSize(14); doc.setFont('helvetica', 'bold');
     doc.text(`${outStats.destAsgs}`, 25 + colWidth * 3, yPosition + 25);
     
@@ -372,7 +372,9 @@ export const exportToPDF = (data: ExportData, limit: number = 15) => {
       let firstPorts = '*';
       let firstPriority = 100;
 
-      const oppData = (opp.rules || []).map((rInfo: any) => {
+      let totalGroupIpSavings = 0;
+
+      const oppData = (opp.rules || []).map((rInfo: any, index: number) => {
         const rName = typeof rInfo === 'string' ? rInfo : (rInfo.ruleName || rInfo.name || '[Unknown Rule]');
         // Fallback: Check original rule data to guarantee we don't have empty cells
         const fullRuleData = data.rules?.find((r: any) => r.name === rName);
@@ -397,23 +399,50 @@ export const exportToPDF = (data: ExportData, limit: number = 15) => {
         if (direction !== '-') firstDirection = direction;
         if (ports !== '-') firstPorts = ports;
 
-        return [ rName, priority, sourceIp, destIp, ports, direction ];
+        const directionLabel = direction === 'Inbound' ? 'IN' : 'OUT';
+        const locationLabel = (sourceIp !== '-' && sourceIp !== '*') ? 'Src' : 'Dest';
+        
+        // IPs Saved logic: If we keep 1 rule and delete others, we save the IPs in the deleted rules
+        const ipsSaved = index === 0 ? 0 : 1; 
+        totalGroupIpSavings += ipsSaved;
+
+        return [ 
+          rName, 
+          priority, 
+          sourceIp, 
+          destIp, 
+          ports, 
+          `${directionLabel} / ${locationLabel}`,
+          ipsSaved.toString()
+        ];
       });
 
       autoTable(doc, {
-        head: [['Rule Name', 'Priority', 'Source IP', 'Destination IP', 'Ports', 'Direction']],
+        head: [['Rule Name', 'Priority', 'Src IP', 'Dest IP', 'Ports', 'Direction / Location', 'IPs Saved']],
         body: oppData,
         startY: yPosition,
         styles: { fontSize: 7, cellPadding: 3, lineColor: [189, 195, 199], lineWidth: 0.1, overflow: 'linebreak' },
         headStyles: { fillColor: [22, 160, 133], textColor: [255, 255, 255], fontStyle: 'bold' },
         alternateRowStyles: { fillColor: [232, 246, 243] },
         columnStyles: {
-          0: { cellWidth: 50 },
+          0: { cellWidth: 45 },
           1: { cellWidth: 15 },
-          2: { cellWidth: 50 }, // Adjusted to prevent overflow
-          3: { cellWidth: 50 }, // Adjusted to prevent overflow
-          4: { cellWidth: 35 },
-          5: { cellWidth: 20 }
+          2: { cellWidth: 45 }, 
+          3: { cellWidth: 45 }, 
+          4: { cellWidth: 30 },
+          5: { cellWidth: 25 },
+          6: { cellWidth: 15 }
+        },
+        didParseCell: function(data) {
+          if (data.section === 'body' && data.column.index === 5) {
+            data.cell.styles.fontStyle = 'bold';
+            const val = String(data.cell.raw || '').toLowerCase();
+            if (val.includes('in') || val.includes('src')) {
+              data.cell.styles.textColor = [46, 204, 113];
+            } else if (val.includes('out') || val.includes('dest')) {
+              data.cell.styles.textColor = [231, 76, 60];
+            }
+          }
         }
       });
       
@@ -421,7 +450,8 @@ export const exportToPDF = (data: ExportData, limit: number = 15) => {
       
       // Check proposed rules from AI, or construct one manually
       const proposed = opp.proposedRules?.[0] || {};
-      const newName = String(proposed.ruleName || `Consolidated-IPs-${firstPriority}`);
+      const recId = getNextRecId();
+      const newName = String(proposed.ruleName ? `${recId}${proposed.ruleName}` : `${recId}Consolidated-IPs-${firstPriority}`);
       let newSrc = String(proposed.sourceAddress || (firstDirection === 'Inbound' ? (opp.recommendedCidr || opp.type || '*') : '*'));
       let newDest = String(proposed.destinationAddress || (firstDirection === 'Outbound' ? (opp.recommendedCidr || opp.type || '*') : '*'));
       const newPorts = String(proposed.destinationPort || firstPorts || '*');
@@ -440,7 +470,7 @@ export const exportToPDF = (data: ExportData, limit: number = 15) => {
 
       // Use autoTable for the recommendation block to prevent text squishing/overlapping
       autoTable(doc, {
-        head: [[`${getNextRecId()}Recommendation - Implement the following rule and delete the above:`]],
+        head: [[`${recId}Recommendation - Implement the following rule and delete the above:`]],
         body: [
           [`Rule Name: ${newName}\nPriority: ${newPriority}    Direction: ${newDirection}    Ports: ${newPorts}\nSource: ${newSrc}\nDestination: ${newDest}`]
         ],
@@ -625,7 +655,7 @@ export const exportToPDF = (data: ExportData, limit: number = 15) => {
       });
   }
 
-  // 1.5 Duplicate IPs Section - ENABLED
+  // 1.5 Duplicate IP Addresses Section - ENABLED
   if (data.aiAnalysis?.duplicateIps && data.aiAnalysis.duplicateIps.length > 0) {
     addSectionHeader('Duplicate IP Addresses', [230, 126, 34]); // Carrot Orange
     
@@ -652,7 +682,7 @@ export const exportToPDF = (data: ExportData, limit: number = 15) => {
       let firstPorts = '*';
       let firstPriority = 100;
 
-      const rulesInfo = (dup.rules || []).map((rInfo: any) => {
+      const rulesInfo = (dup.rules || []).map((rInfo: any, index: number) => {
         const rName = typeof rInfo === 'string' ? rInfo : (rInfo.ruleName || rInfo.name || '[Unknown Rule]');
         const ruleDetails = data.aiAnalysis.ipInventory?.ipDetails?.find((d: any) => d.ruleName === rName && d.ipAddress === dup.ipAddress);
         const fullRuleData = data.rules?.find((r: any) => r.name === rName);
@@ -666,19 +696,24 @@ export const exportToPDF = (data: ExportData, limit: number = 15) => {
         if (direction !== '-') firstDirection = direction;
         if (ports !== '-') firstPorts = ports;
 
+        const directionLabel = direction === 'Inbound' ? 'IN' : 'OUT';
+        const locationLabel = location === 'source' ? 'Src' : 'Dest';
+        const ipsSaved = index === 0 ? 0 : 1;
+
         return [
           rName,
           priority,
           dup.ipAddress || '-',
           ports,
-          location
+          `${directionLabel} / ${locationLabel}`,
+          ipsSaved.toString()
         ];
       });
 
-      const affectedData = rulesInfo.length > 0 ? rulesInfo : [[ '-', '-', dup.ipAddress || '-', '-', '-' ]];
+      const affectedData = rulesInfo.length > 0 ? rulesInfo : [[ '-', '-', dup.ipAddress || '-', '-', '-', '0' ]];
 
       autoTable(doc, {
-        head: [['Rule Name', 'Priority', 'IP Configuration to Change', 'Ports', 'Location']],
+        head: [['Rule Name', 'Priority', 'IP Config to Change', 'Ports', 'Direction / Location', 'IPs Saved']],
         body: affectedData,
         startY: yPosition,
         styles: { fontSize: 8, cellPadding: 3, lineColor: [189, 195, 199], lineWidth: 0.1, overflow: 'linebreak' },
@@ -686,17 +721,19 @@ export const exportToPDF = (data: ExportData, limit: number = 15) => {
         alternateRowStyles: { fillColor: [253, 246, 233] },
         columnStyles: {
           0: { cellWidth: 70 },
-          1: { cellWidth: 20 },
-          2: { cellWidth: 50 },
-          3: { cellWidth: 50 },
-          4: { cellWidth: 40 }
+          1: { cellWidth: 15 },
+          2: { cellWidth: 45 },
+          3: { cellWidth: 35 },
+          4: { cellWidth: 30 },
+          5: { cellWidth: 15 }
         },
         didParseCell: function(data) {
           if (data.section === 'body' && data.column.index === 4) {
             data.cell.styles.fontStyle = 'bold';
-            if (data.cell.raw === 'source') {
+            const val = String(data.cell.raw || '').toLowerCase();
+            if (val.includes('in') || val.includes('src')) {
               data.cell.styles.textColor = [46, 204, 113];
-            } else if (data.cell.raw === 'destination') {
+            } else if (val.includes('out') || val.includes('dest')) {
               data.cell.styles.textColor = [231, 76, 60];
             }
           }
@@ -706,7 +743,8 @@ export const exportToPDF = (data: ExportData, limit: number = 15) => {
       yPosition = doc.lastAutoTable.finalY + 10;
       
       const proposed = dup.proposedRules?.[0] || {};
-      const newName = String(proposed.ruleName || `Consolidated-${String(dup.ipAddress || '').replace(/\./g, '-')}`);
+      const recId = getNextRecId();
+      const newName = String(proposed.ruleName ? `${recId}${proposed.ruleName}` : `${recId}Consolidated-${String(dup.ipAddress || '').replace(/\./g, '-')}`);
       let newSrc = String(proposed.sourceAddress || (firstDirection === 'Inbound' ? dup.ipAddress : '*'));
       let newDest = String(proposed.destinationAddress || (firstDirection === 'Outbound' ? dup.ipAddress : '*'));
       const newPorts = String(proposed.destinationPort || firstPorts || '*');
@@ -726,7 +764,7 @@ export const exportToPDF = (data: ExportData, limit: number = 15) => {
       const recommendationText = dup.recommendation ? dup.recommendation : `Consolidate rules using ${dup.ipAddress}`;
 
       autoTable(doc, {
-        head: [[`${getNextRecId()}Recommendation - ${recommendationText}`]],
+        head: [[`${recId}Recommendation - ${recommendationText}`]],
         body: [
           [`Rule Name: ${newName}\nPriority: ${newPriority}    Direction: ${newDirection}    Ports: ${newPorts}\nSource: ${newSrc}\nDestination: ${newDest}`]
         ],
@@ -784,7 +822,7 @@ export const exportToPDF = (data: ExportData, limit: number = 15) => {
       ).values()
     );
 
-    addSectionHeader('CIDR Overlaps', [155, 89, 182]); // Amethyst
+    addSectionHeader('CIDR Overlap Analysis', [155, 89, 182]); // Amethyst
     
     const topOverlaps = uniqueCidrOverlaps.slice(0, limit);
     if (uniqueCidrOverlaps.length > limit) {
@@ -816,13 +854,16 @@ export const exportToPDF = (data: ExportData, limit: number = 15) => {
       const priority1 = overlap.network1?.priority || ruleDetails1?.priority || fullRule1?.priority || '-';
       const priority2 = overlap.network2?.priority || ruleDetails2?.priority || fullRule2?.priority || '-';
       
+      const loc1 = overlap.network1?.location === 'source' ? 'IN / Src' : 'OUT / Dest';
+      const loc2 = overlap.network2?.location === 'source' ? 'IN / Src' : 'OUT / Dest';
+
       const affectedData = [
-        [rName1 || '-', priority1, overlap.network1?.cidr || '-', port1, overlap.network1?.location || '-'],
-        [rName2 || '-', priority2, overlap.network2?.cidr || '-', port2, overlap.network2?.location || '-']
+        [rName1 || '-', priority1, overlap.network1?.cidr || '-', port1, loc1, '0'],
+        [rName2 || '-', priority2, overlap.network2?.cidr || '-', port2, loc2, '1']
       ];
 
       autoTable(doc, {
-        head: [['Rule Name', 'Priority', 'CIDR', 'Ports', 'Location']],
+        head: [['Rule Name', 'Priority', 'CIDR', 'Ports', 'Direction / Location', 'IPs Saved']],
         body: affectedData,
         startY: yPosition,
         styles: { fontSize: 8, cellPadding: 3, lineColor: [189, 195, 199], lineWidth: 0.1, overflow: 'linebreak' },
@@ -830,17 +871,19 @@ export const exportToPDF = (data: ExportData, limit: number = 15) => {
         alternateRowStyles: { fillColor: [250, 245, 252] },
         columnStyles: {
           0: { cellWidth: 70 },
-          1: { cellWidth: 20 },
-          2: { cellWidth: 50 },
-          3: { cellWidth: 50 },
-          4: { cellWidth: 40 }
+          1: { cellWidth: 15 },
+          2: { cellWidth: 45 },
+          3: { cellWidth: 35 },
+          4: { cellWidth: 30 },
+          5: { cellWidth: 15 }
         },
         didParseCell: function(data) {
           if (data.section === 'body' && data.column.index === 4) {
             data.cell.styles.fontStyle = 'bold';
-            if (data.cell.raw === 'source') {
+            const val = String(data.cell.raw || '').toLowerCase();
+            if (val.includes('in') || val.includes('src')) {
               data.cell.styles.textColor = [46, 204, 113];
-            } else if (data.cell.raw === 'destination') {
+            } else if (val.includes('out') || val.includes('dest')) {
               data.cell.styles.textColor = [231, 76, 60];
             }
           }
@@ -850,7 +893,8 @@ export const exportToPDF = (data: ExportData, limit: number = 15) => {
       yPosition = doc.lastAutoTable.finalY + 10;
       
       const proposed = overlap.proposedRules?.[0] || {};
-      const newName = String(proposed.ruleName || `Consolidated-CIDR-Overlap`);
+      const recId = getNextRecId();
+      const newName = String(proposed.ruleName ? `${recId} ${proposed.ruleName}` : `${recId} Consolidated-CIDR-Overlap`);
       let newSrc = String(proposed.sourceAddress || '*');
       let newDest = String(proposed.destinationAddress || '*');
       const newPorts = String(proposed.destinationPort || '*');
@@ -870,7 +914,7 @@ export const exportToPDF = (data: ExportData, limit: number = 15) => {
       const recommendationText = overlap.recommendation ? overlap.recommendation : `Review and consolidate overlapping CIDRs`;
 
       autoTable(doc, {
-        head: [[`${getNextRecId()}Recommendation - ${recommendationText}`]],
+        head: [[`${recId}Recommendation - ${recommendationText}`]],
         body: [
           [`Rule Name: ${newName}\nPriority: ${newPriority}    Direction: ${newDirection}    Ports: ${newPorts}\nSource: ${newSrc}\nDestination: ${newDest}`]
         ],
@@ -905,7 +949,7 @@ export const exportToPDF = (data: ExportData, limit: number = 15) => {
     doc.setFontSize(10);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(155, 89, 182);
-    doc.text(`CIDR Overlaps Summary: Saved ${totalCidrRuleSlotsSaved} Rule Slots`, 25, yPosition);
+    doc.text(`CIDR Overlaps Summary: Saved ${totalCidrRuleSlotsSaved} IP Address Slots, ${totalCidrRuleSlotsSaved} Rule Slots`, 25, yPosition);
     yPosition += 15;
   }
 

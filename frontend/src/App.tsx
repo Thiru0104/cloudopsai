@@ -18,6 +18,7 @@ import StoragePage from './pages/StoragePage';
 import StorageValidationPage from './pages/StorageValidationPage';
 import NSGValidationEnhancedPage from './pages/NSGValidationEnhancedPage';
 import AgentsPage from './pages/AgentsPage';
+import MigrationHandoverPage from './pages/MigrationHandover/MigrationHandoverPage';
 import SettingsPage from './pages/SettingsPage';
 import './index.css';
 
@@ -58,6 +59,7 @@ function App() {
                         <Route path="/reports" element={<ReportsPage />} />
                         <Route path="/nsg-validation-enhanced" element={<NSGValidationEnhancedPage />} />
                         <Route path="/agents" element={<AgentsPage />} />
+                        <Route path="/migration-handover" element={<MigrationHandoverPage />} />
                         <Route path="/settings" element={<SettingsPage />} />
                       </Routes>
                     </Layout>

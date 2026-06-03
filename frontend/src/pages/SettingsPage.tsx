@@ -42,6 +42,7 @@ const SettingsPage: React.FC = () => {
   const [displaySettings, setDisplaySettings] = useState({
     showStorage: localStorage.getItem('showStorage') !== 'false',
     showNSG: localStorage.getItem('showNSG') !== 'false',
+    showMigrationHandover: localStorage.getItem('showMigrationHandover') !== 'false',
     showAIAgents: localStorage.getItem('showAIAgents') === 'true', // Disabled by default as requested
   });
 
@@ -68,14 +69,20 @@ const SettingsPage: React.FC = () => {
     backupStatus: true,
   });
 
-  const handleDisplaySettingChange = (key: 'showStorage' | 'showNSG' | 'showAIAgents', value: boolean) => {
+  const handleDisplaySettingChange = (key: 'showStorage' | 'showNSG' | 'showMigrationHandover' | 'showAIAgents', value: boolean) => {
     const newSettings = { ...displaySettings, [key]: value };
     setDisplaySettings(newSettings);
     localStorage.setItem(key, String(value));
     // Dispatch event for Layout to listen
     window.dispatchEvent(new Event('displaySettingsChanged'));
     
-    const moduleName = key === 'showStorage' ? 'Storage' : key === 'showNSG' ? 'NSG' : 'AI Agents';
+    let moduleName = '';
+    switch(key) {
+      case 'showStorage': moduleName = 'Storage'; break;
+      case 'showNSG': moduleName = 'NSG'; break;
+      case 'showMigrationHandover': moduleName = 'Migration Handover'; break;
+      case 'showAIAgents': moduleName = 'AI Agents'; break;
+    }
     toast.success(`${moduleName} module ${value ? 'enabled' : 'disabled'}`);
   };
 
@@ -131,6 +138,9 @@ const SettingsPage: React.FC = () => {
         if (e.response && e.response.status === 403) {
           setError('Access denied: You need administrator privileges to view this page.');
           toast.error('Access denied: You need administrator privileges to view this page.');
+        } else if (e.message?.includes('401')) {
+          toast.error('Session expired. Please log in again.');
+          window.dispatchEvent(new Event('auth:unauthorized'));
         } else {
           setError('Failed to load data. Please try again.');
           toast.error('Failed to load data. Please try again.');
@@ -833,6 +843,18 @@ const SettingsPage: React.FC = () => {
                       className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
                       checked={displaySettings.showNSG}
                       onChange={(e) => handleDisplaySettingChange('showNSG', e.target.checked)}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+                    <div>
+                      <div className="font-semibold text-slate-900">Show Migration Handover Module</div>
+                      <div className="text-sm text-slate-600">Enable or disable the Migration Handover module in the sidebar</div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                      checked={displaySettings.showMigrationHandover}
+                      onChange={(e) => handleDisplaySettingChange('showMigrationHandover', e.target.checked)}
                     />
                   </div>
                   <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">

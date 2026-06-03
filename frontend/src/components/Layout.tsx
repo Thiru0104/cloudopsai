@@ -18,7 +18,8 @@ import {
   LogOut,
   Menu,
   HardDrive,
-  Box
+  Box,
+  ArrowRightLeft
 } from 'lucide-react';
 import { useProgress } from '../contexts/ProgressContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -40,6 +41,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [displaySettings, setDisplaySettings] = useState({
     showStorage: localStorage.getItem('showStorage') !== 'false',
     showNSG: localStorage.getItem('showNSG') !== 'false',
+    showMigrationHandover: localStorage.getItem('showMigrationHandover') !== 'false',
+    showAIAgents: localStorage.getItem('showAIAgents') === 'true',
   });
 
   useEffect(() => {
@@ -47,6 +50,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       setDisplaySettings({
         showStorage: localStorage.getItem('showStorage') !== 'false',
         showNSG: localStorage.getItem('showNSG') !== 'false',
+        showMigrationHandover: localStorage.getItem('showMigrationHandover') !== 'false',
+        showAIAgents: localStorage.getItem('showAIAgents') === 'true',
       });
     };
 
@@ -96,6 +101,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         { name: 'NSG Validation', href: '/nsg-validation-enhanced', icon: Search },
         { name: 'AI Agents', href: '/agents', icon: Bot },
       ]
+    }] : []),
+    ...(displaySettings.showMigrationHandover ? [{ 
+      name: 'Migration Handover', 
+      href: '/migration-handover', 
+      icon: ArrowRightLeft, 
+      isGroup: false 
     }] : []),
     { name: 'Settings', href: '/settings', icon: Settings, isGroup: false },
   ];

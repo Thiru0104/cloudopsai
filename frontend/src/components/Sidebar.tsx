@@ -9,7 +9,8 @@ import {
   Bot,
   Settings,
   X,
-  HardDrive
+  HardDrive,
+  ArrowRightLeft
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -20,6 +21,7 @@ interface SidebarProps {
 const navigation = [
   { name: 'Dashboard', href: '/', icon: Cloud },
   { name: 'NSGs', href: '/nsgs', icon: Shield },
+  { name: 'Migration Handover', href: '/migration-handover', icon: ArrowRightLeft },
   { name: 'Storage', href: '/storage', icon: HardDrive },
   { name: 'Backup', href: '/backup', icon: Database },
   { name: 'Restore', href: '/restore', icon: RotateCcw },
@@ -32,12 +34,14 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const location = useLocation();
   const [showStorage, setShowStorage] = React.useState(localStorage.getItem('showStorage') !== 'false');
   const [showNSG, setShowNSG] = React.useState(localStorage.getItem('showNSG') !== 'false');
+  const [showMigrationHandover, setShowMigrationHandover] = React.useState(localStorage.getItem('showMigrationHandover') !== 'false');
   const [showAIAgents, setShowAIAgents] = React.useState(localStorage.getItem('showAIAgents') === 'true');
 
   React.useEffect(() => {
     const handleStorageChange = () => {
       setShowStorage(localStorage.getItem('showStorage') !== 'false');
       setShowNSG(localStorage.getItem('showNSG') !== 'false');
+      setShowMigrationHandover(localStorage.getItem('showMigrationHandover') !== 'false');
       setShowAIAgents(localStorage.getItem('showAIAgents') === 'true');
     };
     
@@ -48,6 +52,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const filteredNavigation = navigation.filter(item => {
     if (item.name === 'Storage' && !showStorage) return false;
     if (item.name === 'NSGs' && !showNSG) return false;
+    if (item.name === 'Migration Handover' && !showMigrationHandover) return false;
     if (item.name === 'AI Agents' && !showAIAgents) return false;
     return true;
   });

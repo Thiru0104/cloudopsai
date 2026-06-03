@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '../components/ui/card';
-import { 
+import {
   Shield, 
   Server, 
   Database, 
@@ -10,8 +10,10 @@ import {
   Activity, 
   Map as MapIcon,
   Filter,
-  ChevronDown
+  ChevronDown,
+  ArrowRightLeft
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../config/api';
 
 // Types
@@ -153,7 +155,7 @@ const REGION_COORDINATES: Record<string, { top: string; left: string }> = {
 };
 
 const DashboardPage: React.FC = () => {
-  
+  const navigate = useNavigate();
   // Filter States
   const [selectedSubscription, setSelectedSubscription] = useState<string>('All');
   const [selectedRegion, setSelectedRegion] = useState<string>('All');
@@ -163,6 +165,16 @@ const DashboardPage: React.FC = () => {
 
   // Dropdown visibility states
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+
+  const [showMigration, setShowMigration] = useState(localStorage.getItem('showMigrationHandover') !== 'false');
+
+  useEffect(() => {
+    const handleSettingsChange = () => {
+      setShowMigration(localStorage.getItem('showMigrationHandover') !== 'false');
+    };
+    window.addEventListener('displaySettingsChanged', handleSettingsChange);
+    return () => window.removeEventListener('displaySettingsChanged', handleSettingsChange);
+  }, []);
 
   const { data: dashboardData, isLoading: loading } = useQuery({
     queryKey: ['dashboard', selectedSubscription, selectedRegion, selectedRG, selectedVM, selectedInterval],
@@ -353,6 +365,27 @@ const DashboardPage: React.FC = () => {
            </button>
         </div>
       </div>
+
+      {/* Quick Access to Migration Handover if enabled */}
+      {showMigration && (
+        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-6 text-white shadow-xl shadow-blue-200/50 mb-8 animate-fade-in cursor-pointer hover:scale-[1.01] transition-transform"
+             onClick={() => navigate('/migration-handover')}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <div className="p-3 bg-white/20 backdrop-blur-md rounded-xl">
+                <ArrowRightLeft className="h-6 w-6 text-white" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold">Migration Handover Tracker</h3>
+                <p className="text-blue-100 text-sm">You have active migrations pending handover to Cloud Ops.</p>
+              </div>
+            </div>
+            <div className="bg-white/20 backdrop-blur-md px-4 py-2 rounded-lg text-sm font-bold">
+              View Dashboard →
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Top Stats Row */}
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">

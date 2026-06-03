@@ -1789,7 +1789,7 @@ I am providing you with a raw NSG validation report data for NSG: {nsg_name}.
 
 Your task is to generate an ENHANCED NSG Remediation Report with the following goals:
 1. Reduce total rule count to stay within Microsoft Azure's hard limit of 1000 NSG rules (warning threshold) and IP address limit of 4000 per NSG.
-2. Clearly identify consolidation opportunities across all analysis categories.
+2. Clearly identify consolidation opportunities across all analysis categories, separating INBOUND and OUTBOUND recommendations.
 3. Produce actionable, ready-to-implement proposed replacement rules in Azure ARM/Bicep-friendly format.
 
 ## FORMATTING RULES FOR YOUR OUTPUT:
@@ -1800,19 +1800,24 @@ Your task is to generate an ENHANCED NSG Remediation Report with the following g
 5. Flag with 🔴 any rule group where consolidation would still exceed 4000 IPs — suggest ASG instead.
 6. Flag with ✅ each group where consolidation is clean and safe to implement immediately.
 7. All proposed rule names must follow the convention: Consolidated-[Direction]-[AnchorRuleName]
+8. IMPORTANT: Prefix EVERY title with a reference ID like [REC-01], [REC-02], etc.
+9. Consolidate BOTH IP addresses and Ports within each recommendation where possible.
+10. Ensure the language used is professional technical English without "junk" words.
+11. 🚫 NEVER use '*' or 'Any' in proposed rules if concrete IPs or Ports are available in the source rules.
+12. 🚫 DO NOT include placeholder text like 'similar_rules_consolidation' in source/destination addresses. Provide the actual comma-separated list of IPs.
 
 Each object in your JSON array should follow this structure:
 {{
-  "title": "Section Title (e.g., 'Duplicate IP Addresses' or 'Similar Rules Consolidation')",
+  "title": "[REC-XX] Section Title (e.g., 'Inbound: Duplicate IP Addresses' or 'Outbound: Similar Rules Consolidation')",
   "type": "CONSOLIDATION" | "OPTIMIZATION" | "SECURITY_RISK" | "SUMMARY",
   "priority": "High" | "Medium" | "Low",
   "impact": "Short impact summary",
-  "description": "Detailed analysis. Include the group info, problem description, and list of rules to DELETE.",
+  "description": "Detailed analysis in clear English. Include the group info, problem description, and list of rules to DELETE.",
   "implementation": "Step-by-step implementation or Recommended Action.",
   "estimatedSavings": {{"rules": 0, "ipAddresses": 0}},
   "proposedRules": [
     {{
-       "name": "Consolidated-[IP_SAFE_NAME]",
+       "name": "Consolidated-[Direction]-[IP_SAFE_NAME]",
        "priority": 100,
        "direction": "Inbound",
        "access": "Allow",
@@ -1820,20 +1825,22 @@ Each object in your JSON array should follow this structure:
        "sourceAddress": "[IP/CIDR]",
        "destinationAddress": "[dest]",
        "destinationPort": "[ports]",
-       "description": "Consolidated from [n] rules. Replaces: [rule1, rule2]"
+       "description": "[REC-XX] Consolidated from [n] rules. Replaces: [rule1, rule2]"
     }}
   ]
 }}
 
 Please generate the objects based on these requested analysis sections (if data exists for them):
-- SECTION 0 — Executive Summary Dashboard (Summarize projected savings)
-- SECTION 1 — Duplicate IP Addresses (Consolidate multiple occurrences of the same IP)
-- SECTION 2 — CIDR Overlap Analysis (Identify identical, subset, or superset CIDRs)
-- SECTION 3 — Similar Rules Consolidation (Same ports/protocol/direction, different IPs)
-- SECTION 4 — Port Consolidation (Same IPs, different ports)
-- SECTION 5 — IP Consolidation (Fragmented IPs that can be grouped into CIDRs)
-- SECTION 6 — ASG Migration Recommendations (For groups > 50 IPs)
-- SECTION 7 — Prioritised Remediation Roadmap (Phased approach)
+- SECTION 0 — [REC-00] Executive Summary Dashboard (Summarize projected savings)
+- SECTION 1 — [REC-01] Inbound: Duplicate IP Addresses
+- SECTION 2 — [REC-02] Outbound: Duplicate IP Addresses
+- SECTION 3 — [REC-03] Inbound: CIDR Overlap Analysis
+- SECTION 4 — [REC-04] Outbound: CIDR Overlap Analysis
+- SECTION 5 — [REC-05] Similar Rules Consolidation (Same ports/protocol/direction, different IPs)
+- SECTION 6 — [REC-06] Port Consolidation (Same IPs, different ports)
+- SECTION 7 — [REC-07] IP Consolidation (Fragmented IPs that can be grouped into CIDRs)
+- SECTION 8 — [REC-08] ASG Migration Recommendations (For groups > 50 IPs)
+- SECTION 9 — [REC-09] Prioritised Remediation Roadmap (Phased approach)
 
 CRITICAL REQUIREMENT for multiple IPs: Whenever you consolidate or combine multiple IP addresses, you MUST attempt to convert them into the smallest possible valid CIDR blocks instead of listing individual IPs separated by commas (e.g. "172.28.238.62,172.28.238.63" -> "172.28.238.62/31").
 If you cannot convert them to CIDR blocks, you MUST list ALL IP addresses separated by commas. NEVER use "..." or truncate the IP list, no matter how long it is.
